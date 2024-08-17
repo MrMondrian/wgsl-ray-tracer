@@ -4,6 +4,7 @@ use winit::{
     event_loop::EventLoop,
     window::Window,
 };
+use wgpu::util::DeviceExt;
 
 async fn exec(event_loop: EventLoop<()>, window: Window) {
     let mut size = window.inner_size();
@@ -39,6 +40,15 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
         .await
         .expect("Failed to create device");
 
+
+    let vertex_buffer = device.create_buffer_init(
+        &wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        }
+    );
+
     // Load the shaders from disk
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
@@ -60,7 +70,7 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[],
+            buffers: &[Vertex::desc()],
             compilation_options: Default::default(),
         },
         fragment: Some(wgpu::FragmentState {
@@ -131,7 +141,8 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
                                     occlusion_query_set: None,
                                 });
                             rpass.set_pipeline(&render_pipeline);
-                            rpass.draw(0..3, 0..1);
+                            rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                            rpass.draw(0..VERTICES.len() as u32, 0..1);
                         }
 
                         queue.submit(Some(encoder.finish()));
@@ -177,3 +188,60 @@ pub fn run() {
         wasm_bindgen_futures::spawn_local(run(event_loop, window));
     }
 }
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct Vertex {
+    position: [f32; 2],
+    tex_coords: [f32; 2], // NEW!
+}
+
+
+impl Vertex {
+    fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2, // NEW!
+                },
+            ]
+        }
+    }
+}
+
+const VERTICES: &[Vertex] = &[
+    Vertex {
+        position: [-0.5, 0.5],
+        tex_coords: [0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5],
+        tex_coords: [0.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, -0.5],
+        tex_coords: [1.0, 1.0],
+    },
+    Vertex {
+        position: [-0.5, 0.5],
+        tex_coords: [0.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5],
+        tex_coords: [1.0, 1.0],
+    },
+    Vertex {
+        position: [0.5, 0.5],
+        tex_coords: [1.0, 0.0],
+    },
+];
