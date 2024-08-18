@@ -104,7 +104,7 @@ fn at(ray: Ray, t: f32) -> vec3<f32> {
 }
 
 fn hit_sphere(sphere: Sphere, r: Ray, ray_tmin: f32, ray_tmax: f32) -> HitRecord {
-    let oc = r.origin - sphere.center;
+    let oc = sphere.center - r.origin;
     let a = dot(r.direction, r.direction);
     let half_b = dot(oc,r.direction);
     let c = dot(oc,oc) - sphere.radius * sphere.radius;
@@ -114,7 +114,7 @@ fn hit_sphere(sphere: Sphere, r: Ray, ray_tmin: f32, ray_tmax: f32) -> HitRecord
     }
 
     let sqrtd = sqrt(discriminant);
-    var root = (-half_b - sqrtd) / a;
+    var root = (half_b - sqrtd) / a;
 
     if root <= ray_tmin || ray_tmax <= root {
         root = (half_b + sqrtd) / a;
