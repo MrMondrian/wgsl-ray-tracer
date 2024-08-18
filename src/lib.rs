@@ -202,7 +202,8 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
 pub fn run() {
     let event_loop = EventLoop::new().unwrap();
     #[allow(unused_mut)]
-    let mut builder = winit::window::WindowBuilder::new();
+    let mut builder = winit::window::WindowBuilder::new()
+        .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
     #[cfg(target_arch = "wasm32")]
     {
         use wasm_bindgen::JsCast;
