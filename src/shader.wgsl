@@ -51,10 +51,37 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 
+struct Ray {
+    origin: vec3<f32>,
+    direction: vec3<f32>,
+}
+
+const SPHERE = u32(0);
+const max_f32 = 3.40282347e+38;
+
+struct Hitable {
+    kind: u32,
+    sphere: Sphere,
+}
+
+struct Sphere {
+    center: vec3<f32>,
+    radius: f32,
+}
+
+struct HitRecord {
+    hit: bool,
+    t: f32,
+    p: vec3<f32>,
+    normal: vec3<f32>,
+}
+
 fn ray_color(ray: Ray)  -> vec4<f32> {
-    let t = hit_sphere(vec3(0.0, 0.0, -1.0), 0.5, ray);
-    if t > 0.0 {
-        let N = normalize(at(ray, t) - vec3(0.0, 0.0, -1.0));
+    let sphere = Sphere(vec3(0.0, 0.0, -1.0), 0.5);
+    let hittable = Hitable(SPHERE, sphere);
+    let record = hit(hittable, ray, 0.0, max_f32);
+    if record.hit {
+        let N = normalize(at(ray, record.t) - vec3(0.0, 0.0, -1.0));
         return vec4<f32>(0.5*(N.x+1.0), 0.5*(N.y+1.0), 0.5*(N.z+1.0), 1.0);
     }
     let unit_direction = normalize(ray.direction);
@@ -63,24 +90,51 @@ fn ray_color(ray: Ray)  -> vec4<f32> {
     return vec4<f32>(color, 1.0);
 }
 
-struct Ray {
-    origin: vec3<f32>,
-    direction: vec3<f32>,
+
+fn hit(hitable: Hitable, r: Ray, t_min: f32, t_max: f32) -> HitRecord {
+    if hitable.kind == SPHERE {
+        return hit_sphere(hitable.sphere, r, t_min, t_max);
+    }
+    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
 }
+
 
 fn at(ray: Ray, t: f32) -> vec3<f32> {
     return ray.origin + t * ray.direction;
 }
 
-fn hit_sphere(center: vec3<f32>, radius: f32, r: Ray) -> f32 {
-    let oc = r.origin - center;
+fn hit_sphere(sphere: Sphere, r: Ray, ray_tmin: f32, ray_tmax: f32) -> HitRecord {
+    let oc = r.origin - sphere.center;
     let a = dot(r.direction, r.direction);
-    let b = 2.0 * dot(oc, r.direction);
-    let c = dot(oc, oc) - radius*radius;
-    let discriminant = b*b - 4.0*a*c;
+    let half_b = dot(oc,r.direction);
+    let c = dot(oc,oc) - sphere.radius * sphere.radius;
+    let discriminant = half_b*half_b - a*c;
     if discriminant < 0.0 {
-        return -1.0;
-    } else {
-        return (-b - sqrt(discriminant)) / (2.0*a);
+        return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
     }
+
+    let sqrtd = sqrt(discriminant);
+    var root = (-half_b - sqrtd) / a;
+
+    if root <= ray_tmin || ray_tmax <= root {
+        root = (half_b + sqrtd) / a;
+        if root <= ray_tmin || ray_tmax <= root {
+            return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
+        } 
+    }
+
+    let p = at(r,root);
+    let normal = (p - sphere.center) / sphere.radius;
+    var record = HitRecord(true,root,p,normal);
+    record.normal = set_front_face(record, r);
+    return record;
+
+}
+
+fn set_front_face(rec: HitRecord, r: Ray) -> vec3<f32> {
+    let front_face = dot(r.direction, rec.normal) < 0.0;
+    if !front_face {
+        return -rec.normal;
+    }
+    return rec.normal;
 }
