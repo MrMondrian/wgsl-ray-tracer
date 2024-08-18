@@ -49,6 +49,45 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
         }
     );
 
+    let frame_data_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("frame_data_buffer"),
+        size: std::mem::size_of::<[f32; 2]>() as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let frame_data_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }
+        ],
+        label: Some("frame_bind_group_layout"),
+    });
+
+    let frame_data_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &frame_data_bind_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &frame_data_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }
+        ],
+        label: Some("frame_bind_group"),
+    });
+    
+
     // Load the shaders from disk
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: None,
@@ -57,7 +96,7 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[],
+        bind_group_layouts: &[&frame_data_bind_layout],
         push_constant_ranges: &[],
     });
 
@@ -140,7 +179,11 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
                                     timestamp_writes: None,
                                     occlusion_query_set: None,
                                 });
+                            let inner_size = window.inner_size();
+                            let frame_data = [inner_size.width as u32, inner_size.height as u32];
+                            queue.write_buffer(&frame_data_buffer, 0, bytemuck::cast_slice(&frame_data)); 
                             rpass.set_pipeline(&render_pipeline);
+                            rpass.set_bind_group(0, &frame_data_bind_group, &[]);
                             rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
                             rpass.draw(0..VERTICES.len() as u32, 0..1);
                         }
