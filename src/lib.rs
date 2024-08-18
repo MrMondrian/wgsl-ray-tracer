@@ -5,6 +5,8 @@ use winit::{
     window::Window,
 };
 use wgpu::util::DeviceExt;
+mod camera;
+use crate::camera::Camera;
 
 async fn exec(event_loop: EventLoop<()>, window: Window) {
     let mut size = window.inner_size();
@@ -86,6 +88,45 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
         ],
         label: Some("frame_bind_group"),
     });
+
+    let camera = Camera::new();
+    let camera_buffer = device.create_buffer_init(
+        &wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        }
+    );
+    let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }
+        ],
+        label: Some("camera_bind_group_layout"),
+    });
+
+    let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &camera_bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &camera_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }
+        ],
+        label: Some("camera_bind_group"),
+    });
     
 
     // Load the shaders from disk
@@ -96,7 +137,10 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
 
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[&frame_data_bind_layout],
+        bind_group_layouts: &[
+            &frame_data_bind_layout,
+            &camera_bind_group_layout,
+        ],
         push_constant_ranges: &[],
     });
 
@@ -184,6 +228,7 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
                             queue.write_buffer(&frame_data_buffer, 0, bytemuck::cast_slice(&frame_data)); 
                             rpass.set_pipeline(&render_pipeline);
                             rpass.set_bind_group(0, &frame_data_bind_group, &[]);
+                            rpass.set_bind_group(1, &camera_bind_group, &[]);
                             rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
                             rpass.draw(0..VERTICES.len() as u32, 0..1);
                         }
@@ -265,27 +310,27 @@ impl Vertex {
 
 const VERTICES: &[Vertex] = &[
     Vertex {
-        position: [-1.0, 1.0],
+        position: [-0.9, 0.9],
         tex_coords: [0.0, 0.0],
     },
     Vertex {
-        position: [-1.0, -1.0],
+        position: [-0.9, -0.9],
         tex_coords: [0.0, 1.0],
     },
     Vertex {
-        position: [1.0, -1.0],
+        position: [0.9, -0.9],
         tex_coords: [1.0, 1.0],
     },
     Vertex {
-        position: [-1.0, 1.0],
+        position: [-0.9, 0.9],
         tex_coords: [0.0, 0.0],
     },
     Vertex {
-        position: [1.0, -1.0],
+        position: [0.9, -0.9],
         tex_coords: [1.0, 1.0],
     },
     Vertex {
-        position: [1.0, 1.0],
+        position: [0.9, 0.9],
         tex_coords: [1.0, 0.0],
     },
 ];
