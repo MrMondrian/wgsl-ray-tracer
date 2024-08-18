@@ -52,8 +52,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
 
 fn ray_color(ray: Ray)  -> vec4<f32> {
-    if hit_sphere(vec3(0.0, 0.0, -1.0), 0.5, ray) {
-        return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+    let t = hit_sphere(vec3(0.0, 0.0, -1.0), 0.5, ray);
+    if t > 0.0 {
+        let N = normalize(at(ray, t) - vec3(0.0, 0.0, -1.0));
+        return vec4<f32>(0.5*(N.x+1.0), 0.5*(N.y+1.0), 0.5*(N.z+1.0), 1.0);
     }
     let unit_direction = normalize(ray.direction);
     let a = 0.5*(unit_direction.y + 1.0);
@@ -70,11 +72,15 @@ fn at(ray: Ray, t: f32) -> vec3<f32> {
     return ray.origin + t * ray.direction;
 }
 
-fn hit_sphere(center: vec3<f32>, radius: f32, r: Ray) -> bool {
+fn hit_sphere(center: vec3<f32>, radius: f32, r: Ray) -> f32 {
     let oc = r.origin - center;
     let a = dot(r.direction, r.direction);
     let b = 2.0 * dot(oc, r.direction);
     let c = dot(oc, oc) - radius*radius;
     let discriminant = b*b - 4.0*a*c;
-    return discriminant >= 0.0;
+    if discriminant < 0.0 {
+        return -1.0;
+    } else {
+        return (-b - sqrt(discriminant)) / (2.0*a);
+    }
 }
