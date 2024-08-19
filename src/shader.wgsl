@@ -36,6 +36,9 @@ fn vs_main(
 
 @group(1) @binding(0) var<uniform> camera: Camera;
 
+const NUM_HITABLES = 1u;
+@group(2) @binding(0) var<storage,read> hitabble_list: array<Hitable>;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
@@ -77,13 +80,15 @@ struct HitRecord {
 }
 
 fn ray_color(ray: Ray)  -> vec4<f32> {
-    let sphere = Sphere(vec3(0.0, 0.0, -1.0), 0.5);
-    let hittable = Hitable(SPHERE, sphere);
-    let record = hit(hittable, ray, 0.0, max_f32);
-    if record.hit {
-        let N = normalize(at(ray, record.t) - vec3(0.0, 0.0, -1.0));
-        return vec4<f32>(0.5*(N.x+1.0), 0.5*(N.y+1.0), 0.5*(N.z+1.0), 1.0);
+    for (var idx = 0u; idx < NUM_HITABLES; idx = idx + 1u) {
+        let sphere = hitabble_list[idx];
+        let record = hit(sphere, ray, 0.0, max_f32);
+        if record.hit {
+            let N = normalize(at(ray, record.t) - vec3(0.0, 0.0, -1.0));
+            return vec4<f32>(0.5*(N.x+1.0), 0.5*(N.y+1.0), 0.5*(N.z+1.0), 1.0);
+        }
     }
+
     let unit_direction = normalize(ray.direction);
     let a = 0.5*(unit_direction.y + 1.0);
     let color =  (1.0-a)*vec3(1.0, 1.0, 1.0) + a*vec3(0.5, 0.7, 1.0);
@@ -92,10 +97,10 @@ fn ray_color(ray: Ray)  -> vec4<f32> {
 
 
 fn hit(hitable: Hitable, r: Ray, t_min: f32, t_max: f32) -> HitRecord {
-    if hitable.kind == SPHERE {
+    // if hitable.kind == SPHERE {
         return hit_sphere(hitable.sphere, r, t_min, t_max);
-    }
-    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
+    // }
+    // return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
 }
 
 

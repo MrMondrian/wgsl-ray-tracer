@@ -7,6 +7,9 @@ use winit::{
 use wgpu::util::DeviceExt;
 mod camera;
 use crate::camera::Camera;
+mod hittable;
+use crate::hittable::*;
+use glam::Vec3;
 
 async fn exec(event_loop: EventLoop<()>, window: Window) {
     let mut size = window.inner_size();
@@ -33,8 +36,10 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
                 label: None,
                 required_features: wgpu::Features::empty(),
                 // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                    .using_resolution(adapter.limits()),
+                required_limits: wgpu::Limits {
+                    max_storage_buffer_binding_size: 512_u32 << 20,
+                    ..Default::default()
+                },
                 memory_hints: wgpu::MemoryHints::MemoryUsage,
             },
             None,
@@ -127,7 +132,51 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
         ],
         label: Some("camera_bind_group"),
     });
+
+    let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5);
     
+    let hittable1 = Hittable::new(0, sphere1);
+
+    let hittable_list = vec![hittable1];
+    let hittable_list_buffer = device.create_buffer_init(
+        &wgpu::util::BufferInitDescriptor {
+            label: Some("Hittable List Buffer"),
+            contents: bytemuck::cast_slice(hittable_list.as_slice()),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        }
+    );
+
+    let hittable_list_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }
+        ],
+        label: Some("hittable_list_bind_group_layout"),
+    });
+
+    let hittable_list_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &hittable_list_bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &hittable_list_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }
+        ],
+        label: Some("hittable_list_bind_group"),
+    });
+
 
     // Load the shaders from disk
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -140,6 +189,7 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
         bind_group_layouts: &[
             &frame_data_bind_layout,
             &camera_bind_group_layout,
+            &hittable_list_bind_group_layout,
         ],
         push_constant_ranges: &[],
     });
@@ -229,6 +279,7 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
                             rpass.set_pipeline(&render_pipeline);
                             rpass.set_bind_group(0, &frame_data_bind_group, &[]);
                             rpass.set_bind_group(1, &camera_bind_group, &[]);
+                            rpass.set_bind_group(2, &hittable_list_bind_group, &[]);
                             rpass.set_vertex_buffer(0, vertex_buffer.slice(..));
                             rpass.draw(0..VERTICES.len() as u32, 0..1);
                         }
