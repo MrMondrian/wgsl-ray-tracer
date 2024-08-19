@@ -15,11 +15,11 @@ pub struct Camera {
     pub pixel_delta_u: Vec3,
     _pad4: f32,  // Padding to align pixel_delta_v to 16 bytes
     pub pixel_delta_v: Vec3,
-    _pad5: f32,  // Padding to align samples_per_pixel to 16 bytes
     pub samples_per_pixel: u32,
     pub pixels_sample_scale: f32,
     pub max_depth: u32,
-    pub _pad6: f32,  // Padding to align Camera to 16 bytes
+    _pad5: f32,
+    _pad6: f32,  // Padding to align Camera to 16 bytes
 }
 
 impl Camera {
@@ -55,10 +55,10 @@ impl Camera {
             pixel_delta_u,
             _pad4: 0.0,
             pixel_delta_v,
-            _pad5: 0.0,
             samples_per_pixel,
             pixels_sample_scale,
             max_depth,
+            _pad5: 0.0,
             _pad6: 0.0,
         }
     }

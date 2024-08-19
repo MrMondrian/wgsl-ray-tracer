@@ -40,5 +40,3 @@ impl Sphere {
 
 unsafe impl bytemuck::Pod for Sphere {}
 unsafe impl bytemuck::Zeroable for Sphere {}
-
-const SPHERE: u32 = 0;

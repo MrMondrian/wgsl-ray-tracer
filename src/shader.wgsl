@@ -44,12 +44,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let x = in.tex_coords.x * f32(camera.image_width);
     let y = in.tex_coords.y * f32(camera.image_height);
-    let pixel_loc = camera.pixel00_loc + x * camera.pixel_delta_u + y * camera.pixel_delta_v;
+    
+    var color = vec4<f32>(0.0, 0.0, 0.0,0.0);
+    for(var i = u32(0); i < camera.samples_per_pixel; i = i + 1) {
+        let rng_seed = vec2<f32>(f32(in.tex_coords.x), f32(in.tex_coords.y) + f32(i));
+        let sample = sample_square(rng_seed);
 
-    let ray_origin = camera.center;
-    let ray_direction = pixel_loc - ray_origin;
-    let ray = Ray(ray_origin, ray_direction);
-    return ray_color(ray);
+        let pixel_loc = camera.pixel00_loc + ((x + sample.x) * camera.pixel_delta_u) + ((y + sample.y) * camera.pixel_delta_v);
+
+        let ray_origin = camera.center;
+        let ray_direction = pixel_loc - ray_origin;
+        let ray = Ray(ray_origin, ray_direction);
+        color += ray_color(ray);
+    }
+    return color / f32(camera.samples_per_pixel);
 
 }
 
@@ -79,6 +87,10 @@ struct HitRecord {
     normal: vec3<f32>,
 }
 
+fn sample_square(rng_seed: vec2<f32>) -> vec2<f32> {
+    return vec2<f32>(rand(rng_seed) - 0.5, rand(rng_seed + vec2<f32>(1.0, 0.0)) -0.5);
+}
+
 fn ray_color(ray: Ray)  -> vec4<f32> {
     for (var idx = 0u; idx < NUM_HITABLES; idx = idx + 1u) {
         let sphere = hitabble_list[idx];
@@ -97,10 +109,10 @@ fn ray_color(ray: Ray)  -> vec4<f32> {
 
 
 fn hit(hitable: Hitable, r: Ray, t_min: f32, t_max: f32) -> HitRecord {
-    // if hitable.kind == SPHERE {
+    if hitable.kind == SPHERE {
         return hit_sphere(hitable.sphere, r, t_min, t_max);
-    // }
-    // return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
+    }
+    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
 }
 
 
@@ -142,4 +154,18 @@ fn set_front_face(rec: HitRecord, r: Ray) -> vec3<f32> {
         return -rec.normal;
     }
     return rec.normal;
+}
+
+fn rand(seed: vec2<f32>) -> f32 {
+    return clamp(fract(sin(dot(seed, vec2(12.9898, 78.233))) * 43758.5453));
+}
+
+fn clamp(x: f32) -> f32 {
+    if x < 0.0 {
+        return 0.0;
+    }
+    if x > 1.0 {
+        return 1.0;
+    }
+    return x;
 }
