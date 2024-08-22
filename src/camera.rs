@@ -31,7 +31,7 @@ impl Camera {
         let focal_length: f32 = 1.0;
         let view_height: f32 = 2.0;
         let center = Vec3::ZERO;
-        let samples_per_pixel = 50;
+        let samples_per_pixel = 2;
         let max_depth = 10;
         let pixels_sample_scale = 1.0 / (samples_per_pixel as f32);
         let image_height: u32 = (image_width as f32 / aspect_ratio) as u32;

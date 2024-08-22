@@ -46,18 +46,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let y = in.tex_coords.y * f32(camera.image_height);
     
     var color = vec4<f32>(0.0, 0.0, 0.0,0.0);
-    for(var i = u32(0); i < camera.samples_per_pixel; i = i + 1) {
-        let rng_seed = vec2<f32>(f32(in.tex_coords.x), f32(in.tex_coords.y) + f32(i));
-        let sample = sample_square(rng_seed);
+    for(var i = u32(1); i <= camera.samples_per_pixel; i = i + 1) {
+        for(var j = u32(1); j <= camera.samples_per_pixel; j = j + 1) {
+            let sample = vec2<f32>(f32(i) / f32(camera.samples_per_pixel) - 0.5, f32(j) / f32(camera.samples_per_pixel) - 0.5);
+            let pixel_loc = camera.pixel00_loc + ((x + sample.x) * camera.pixel_delta_u) + ((y + sample.y) * camera.pixel_delta_v);
 
-        let pixel_loc = camera.pixel00_loc + ((x + sample.x) * camera.pixel_delta_u) + ((y + sample.y) * camera.pixel_delta_v);
-
-        let ray_origin = camera.center;
-        let ray_direction = pixel_loc - ray_origin;
-        let ray = Ray(ray_origin, ray_direction);
-        color += ray_color(ray);
+            let ray_origin = camera.center;
+            let ray_direction = pixel_loc - ray_origin;
+            let ray = Ray(ray_origin, ray_direction);
+            color += ray_color(ray);
+        }
     }
-    return color / f32(camera.samples_per_pixel);
+    return color / f32(camera.samples_per_pixel * camera.samples_per_pixel);
 
 }
 
@@ -88,7 +88,7 @@ struct HitRecord {
 }
 
 fn sample_square(rng_seed: vec2<f32>) -> vec2<f32> {
-    return vec2<f32>(rand(rng_seed) - 0.5, rand(rng_seed + vec2<f32>(1.0, 0.0)) -0.5);
+    return vec2<f32>(random_vec2(rng_seed) - 0.5, random_vec2(rng_seed.yx) - 0.5);
 }
 
 fn ray_color(ray: Ray)  -> vec4<f32> {
@@ -156,16 +156,26 @@ fn set_front_face(rec: HitRecord, r: Ray) -> vec3<f32> {
     return rec.normal;
 }
 
-fn rand(seed: vec2<f32>) -> f32 {
-    return clamp(fract(sin(dot(seed, vec2(12.9898, 78.233))) * 43758.5453));
+fn random_vec2(v: vec2<f32>) -> f32 { return float_construct(hash_vec2(vec2<u32>(bitcast<u32>(v.x), bitcast<u32>(v.y)))); }
+fn hash(x: u32) -> u32 {
+    var result = x;
+    result += (result << 10u);
+    result ^= (result >>  6u);
+    result += (result <<  3u);
+    result ^= (result >> 11u);
+    result += (result << 15u);
+    return result;
 }
 
-fn clamp(x: f32) -> f32 {
-    if x < 0.0 {
-        return 0.0;
-    }
-    if x > 1.0 {
-        return 1.0;
-    }
-    return x;
+// Compound versions of the hashing algorithm
+fn hash_vec2(v: vec2<u32>) -> u32 { return hash(v.x ^ hash(v.y)); }
+
+// Construct a float with half-open range [0:1] using low 23 bits.
+fn float_construct(m: u32) -> f32 {
+    let ieee_mantissa: u32 = 0x007FFFFFu; // binary32 mantissa bitmask
+    let ieee_one: u32      = 0x3F800000u; // 1.0 in IEEE binary32
+
+    let result = (m & ieee_mantissa) | ieee_one;  // Keep only mantissa bits and add exponent
+
+    return bitcast<f32>(result) - 1.0;    // Range [0:1]
 }
