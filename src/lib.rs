@@ -134,10 +134,12 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
     });
 
     let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5);
+    let sphere2: Sphere = Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0);
     
     let hittable1 = Hittable::new(0, sphere1);
+    let hittable2 = Hittable::new(0, sphere2);
 
-    let hittable_list = vec![hittable1];
+    let hittable_list = vec![hittable1, hittable2];
     let hittable_list_buffer = device.create_buffer_init(
         &wgpu::util::BufferInitDescriptor {
             label: Some("Hittable List Buffer"),

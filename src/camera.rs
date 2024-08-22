@@ -17,7 +17,7 @@ pub struct Camera {
     pub pixel_delta_v: Vec3,
     pub samples_per_pixel: u32,
     pub pixels_sample_scale: f32,
-    pub max_depth: u32,
+    pub max_depth: u32, // if this needs to be > 100 edit the shader
     _pad5: f32,
     _pad6: f32,  // Padding to align Camera to 16 bytes
 }
