@@ -54,20 +54,22 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             let ray_origin = camera.center;
             let ray_direction = pixel_loc - ray_origin;
             let ray = Ray(ray_origin, ray_direction);
-            seed = sample_vec3(seed);
-            color += ray_color(ray, seed);
+            for(var k = u32(0); k < 4; k = k + 1) {
+                seed = sample_vec3(seed.yzx);
+                color += ray_color(ray, seed);
+            }
             seed += color.xyz;
         }
     }
-    return color / f32(camera.samples_per_pixel * camera.samples_per_pixel);
+    return color / f32(camera.samples_per_pixel * camera.samples_per_pixel * 4);
 
 }
 
 fn sample_vec3(rng_seed: vec3<f32>) -> vec3<f32> {
     let out1 = random_vec3(rng_seed);
-    let seed2 = rng_seed + out1;
+    let seed2 = rng_seed.yzx + out1;
     let out2 = random_vec3(seed2);
-    let seed3 = seed2 + out2;
+    let seed3 = seed2.zxy - out2;
     let out3 = random_vec3(seed3);
     return vec3<f32>(out1, out2, out3);
 }
@@ -79,7 +81,7 @@ fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     var curr_ray = ray;
     var mutable_seed = seed;
     for(var depth = 0u; depth < camera.max_depth; depth = depth + 1u) {
-        let record = get_hit_record(curr_ray, 0.0, max_f32);
+        let record = get_hit_record(curr_ray, 0.001, max_f32);
         if record.hit {
             let direction = random_vec3_on_hemisphere(record.normal, mutable_seed);
             attenuations[depth] = 0.5;
@@ -155,8 +157,8 @@ fn hit_sphere(sphere: Sphere, r: Ray, ray_tmin: f32, ray_tmax: f32) -> HitRecord
 }
 
 fn set_front_face(rec: HitRecord, r: Ray) -> vec3<f32> {
-    let not_front_face = dot(r.direction, rec.normal) < 0.0;
-    if not_front_face {
+    let front_face = dot(r.direction, rec.normal) < 0.0;
+    if !front_face {
         return -rec.normal;
     }
     return rec.normal;
@@ -188,7 +190,7 @@ struct HitRecord {
 }
 
 fn random_vec3_on_hemisphere(normal: vec3<f32>, rng_seed: vec3<f32>) -> vec3<f32> {
-    let p = sample_vec3(rng_seed);
+    let p = normal + sample_vec3(rng_seed);
     var normed = normalize(p);
     if dot(normed, normal) < 0.0 {
         normed = -normed;
@@ -210,7 +212,7 @@ fn hash(x: u32) -> u32 {
 
 // Compound versions of the hashing algorithm
 fn hash_vec2(v: vec2<u32>) -> u32 { return hash(v.x ^ hash(v.y)); }
-fn hash_vec3(v: vec3<u32>) -> u32 { return hash(v.x ^ hash(v.y) ^ hash(v.z)); }
+fn hash_vec3(v: vec3<u32>) -> u32 { return hash((v.x ^ hash(v.y)) ^ hash(v.z)); }
 
 // Construct a float with half-open range [0:1] using low 23 bits.
 fn float_construct(m: u32) -> f32 {
