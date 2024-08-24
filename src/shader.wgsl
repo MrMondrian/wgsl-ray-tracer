@@ -66,12 +66,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 fn sample_vec3(rng_seed: vec3<f32>) -> vec3<f32> {
-    let out1 = random_vec3(rng_seed);
-    let seed2 = rng_seed.yzx + out1;
-    let out2 = random_vec3(seed2);
-    let seed3 = seed2.zxy - out2;
-    let out3 = random_vec3(seed3);
-    return vec3<f32>(out1, out2, out3);
+    let out = vec3<f32>(
+        random_vec3(rng_seed + vec3<f32>(0.0, 1.0, 2.0)),
+        random_vec3(rng_seed + vec3<f32>(3.0, 4.0, 5.0)),
+        random_vec3(rng_seed + vec3<f32>(6.0, 7.0, 8.0))
+    );
+    return out * 2.0 - 1.0;
 }
 
 
@@ -197,6 +197,7 @@ fn random_vec3_on_hemisphere(normal: vec3<f32>, rng_seed: vec3<f32>) -> vec3<f32
     }
     return normed;
 }
+
 
 fn random_vec2(v: vec2<f32>) -> f32 { return float_construct(hash_vec2(vec2<u32>(bitcast<u32>(v.x), bitcast<u32>(v.y)))); }
 fn random_vec3(v: vec3<f32>) -> f32 { return float_construct(hash_vec3(vec3<u32>(bitcast<u32>(v.x), bitcast<u32>(v.y), bitcast<u32>(v.z)))); }
