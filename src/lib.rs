@@ -20,6 +20,7 @@ struct GpuInfo<'a> {
     render_pipeline: wgpu::RenderPipeline,
     camera: Camera,
     camera_buffer: wgpu::Buffer,
+    camera_bind_group_layout: wgpu::BindGroupLayout,
     vertex_buffer: wgpu::Buffer,
     frame_data_buffer: wgpu::Buffer,
     frame_data_bind_group: wgpu::BindGroup,
@@ -48,6 +49,8 @@ impl<'a> GpuInfo<'a> {
             .await
             .expect("Failed to find an appropriate adapter");
 
+        
+
         // Create the logical device and command queue
         let (device, queue) = adapter
             .request_device(
@@ -65,6 +68,11 @@ impl<'a> GpuInfo<'a> {
             )
             .await
             .expect("Failed to create device");
+
+        let config = surface
+            .get_default_config(&adapter, size.width, size.height)
+            .unwrap();
+        surface.configure(&device, &config);
 
 
         let vertex_buffer = device.create_buffer_init(
@@ -113,7 +121,7 @@ impl<'a> GpuInfo<'a> {
             label: Some("frame_bind_group"),
         });
 
-        let camera = Camera::new();
+        let camera = Camera::new(config.width, config.height as f32);
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
@@ -248,11 +256,6 @@ impl<'a> GpuInfo<'a> {
             cache: None,
         });
 
-        let config = surface
-            .get_default_config(&adapter, size.width, size.height)
-            .unwrap();
-        surface.configure(&device, &config);
-
         return Self {
             surface,
             device,
@@ -262,6 +265,7 @@ impl<'a> GpuInfo<'a> {
             render_pipeline,
             camera,
             camera_buffer,
+            camera_bind_group_layout,
             vertex_buffer,
             frame_data_buffer,
             frame_data_bind_group,
@@ -319,7 +323,7 @@ impl<'a> GpuInfo<'a> {
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
-        self.camera.update(new_size.width as f32 / new_size.height as f32, new_size.width);
+        self.camera = Camera::new(self.config.width, self.config.height as f32);
         self.camera_buffer = self.device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
@@ -327,6 +331,20 @@ impl<'a> GpuInfo<'a> {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             }
         );
+        self.camera_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.camera_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &self.camera_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                }
+            ],
+            label: Some("camera_bind_group"),
+        });
     }
 
  

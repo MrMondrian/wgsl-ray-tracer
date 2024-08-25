@@ -24,16 +24,14 @@ pub struct Camera {
 impl Camera {
 
 
-    pub fn new() -> Self {
-        let aspect_ratio = 16.0 / 9.0;
-        let image_width = 1280;
+    pub fn new(image_width: u32, image_height: f32) -> Self {
+        let aspect_ratio = image_width as f32 / image_height;
         let focal_length: f32 = 1.0;
         let view_height: f32 = 2.0;
         let center = Vec3::ZERO;
-        let samples_per_pixel = 3;
+        let samples_per_pixel = 2;
         let max_depth = 10;
         let pixels_sample_scale = 1.0 / (samples_per_pixel as f32);
-        let image_height: u32 = (image_width as f32 / aspect_ratio) as u32;
         let view_width: f32 = view_height * (image_width as f32 / image_height as f32);
         let viewport_u = Vec3::new(view_width, 0.0, 0.0);
         let viewport_v = Vec3::new(0.0, -view_height, 0.0);
@@ -60,12 +58,6 @@ impl Camera {
             _pad5: 0.0,
             _pad6: 0.0,
         }
-    }
-
-    pub fn update(self: &mut Self, aspect_ratio: f32, image_width: u32) {
-        self.aspect_ratio = aspect_ratio;
-        self.image_width = image_width;
-        self.image_height = image_width as f32 / aspect_ratio;
     }
 
 
