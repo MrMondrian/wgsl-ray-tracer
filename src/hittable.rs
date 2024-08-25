@@ -1,20 +1,22 @@
 use glam::Vec3;
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug,)]
+#[derive(Copy, Clone, Debug)]
 pub struct Hittable {
     kind: u32,
     _padding: [u32; 3], // Padding to align with the next field
     sphere: Sphere,
+    material: Material,
 }
 
 
 impl Hittable {
-    pub fn new(kind: u32, sphere: Sphere) -> Self {
+    pub fn new(kind: u32, sphere: Sphere, material: Material) -> Self {
         Self {
             kind,
             _padding: [0; 3],
             sphere,
+            material,
         }
     }
 }
@@ -40,3 +42,22 @@ impl Sphere {
 
 unsafe impl bytemuck::Pod for Sphere {}
 unsafe impl bytemuck::Zeroable for Sphere {}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct Material {
+    albedo: Vec3,
+    kind: u32,
+}
+
+impl Material {
+    pub fn new(albedo: Vec3, kind: u32) -> Self {
+        Self {
+            albedo,
+            kind,
+        }
+    }
+}
+
+unsafe impl bytemuck::Pod for Material {}
+unsafe impl bytemuck::Zeroable for Material {}
