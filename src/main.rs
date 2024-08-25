@@ -1,5 +1,5 @@
-use wgsl::run;
+use wgsl::ray_tracer;
 
 fn main() {
-    run();
+    ray_tracer();
 }

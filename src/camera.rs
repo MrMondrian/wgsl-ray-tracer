@@ -1,6 +1,5 @@
 use glam::Vec3;
 
-
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Camera {
@@ -27,11 +26,11 @@ impl Camera {
 
     pub fn new() -> Self {
         let aspect_ratio = 16.0 / 9.0;
-        let image_width = 400;
+        let image_width = 1280;
         let focal_length: f32 = 1.0;
         let view_height: f32 = 2.0;
         let center = Vec3::ZERO;
-        let samples_per_pixel = 2;
+        let samples_per_pixel = 3;
         let max_depth = 10;
         let pixels_sample_scale = 1.0 / (samples_per_pixel as f32);
         let image_height: u32 = (image_width as f32 / aspect_ratio) as u32;
@@ -61,6 +60,12 @@ impl Camera {
             _pad5: 0.0,
             _pad6: 0.0,
         }
+    }
+
+    pub fn update(self: &mut Self, aspect_ratio: f32, image_width: u32) {
+        self.aspect_ratio = aspect_ratio;
+        self.image_width = image_width;
+        self.image_height = image_width as f32 / aspect_ratio;
     }
 
 
