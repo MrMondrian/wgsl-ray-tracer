@@ -173,6 +173,9 @@ fn scatter(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> Scatt
     if material.kind == LAMBERTIAN {
         return scatter_lambertian(material, r, rec, seed);
     }
+    if material.kind == METAL {
+        return scatter_metal(material, r, rec, seed);
+    }
     return ScatterRecord(false, vec3(0.0, 0.0, 0.0), Ray(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0)));
 }
 
@@ -181,6 +184,17 @@ fn scatter_lambertian(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32
     let scattered = Ray(rec.p, scatter_ray);
     let attenuation = material.albedo;
     return ScatterRecord(true, attenuation, scattered);
+}
+
+fn scatter_metal(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
+    let reflected = reflect(normalize(r.direction), rec.normal);
+    let scattered = Ray(rec.p, reflected);
+    let attenuation = material.albedo;
+    return ScatterRecord(true, attenuation, scattered);
+}
+
+fn reflect(v: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
+    return v - 2.0 * dot(v, n) * n;
 }
 
 fn null_hit_record() -> HitRecord {

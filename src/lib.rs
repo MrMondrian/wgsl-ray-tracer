@@ -133,15 +133,21 @@ async fn exec(event_loop: EventLoop<()>, window: Window) {
         label: Some("camera_bind_group"),
     });
 
-    let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5);
+    let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.2), 0.5);
     let material1 = Material::new(Vec3::new(0.8, 0.3, 0.3), 0);
     let sphere2: Sphere = Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0);
     let material2 = Material::new(Vec3::new(0.8, 0.8, 0.0), 0);
+    let sphere3: Sphere = Sphere::new(Vec3::new(-1.0, 0.0, -1.0), 0.5);
+    let material3 = Material::new(Vec3::new(0.8, 0.6, 0.2), 1);
+    let sphere4: Sphere = Sphere::new(Vec3::new(1.0, 0.0, -1.0), 0.5);
+    let material4 = Material::new(Vec3::new(0.8, 0.8, 0.8), 1);
     
     let hittable1 = Hittable::new(0, sphere1, material1);
     let hittable2 = Hittable::new(0, sphere2, material2);
+    let hittable3 = Hittable::new(0, sphere3, material3);
+    let hittable4 = Hittable::new(0, sphere4, material4);
 
-    let hittable_list = vec![hittable1, hittable2];
+    let hittable_list = vec![hittable1, hittable2, hittable3, hittable4];
     let hittable_list_buffer = device.create_buffer_init(
         &wgpu::util::BufferInitDescriptor {
             label: Some("Hittable List Buffer"),
