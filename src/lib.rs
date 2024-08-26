@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -20,12 +21,12 @@ struct GpuInfo<'a> {
     render_pipeline: wgpu::RenderPipeline,
     camera: Camera,
     camera_buffer: wgpu::Buffer,
-    camera_bind_group_layout: wgpu::BindGroupLayout,
     vertex_buffer: wgpu::Buffer,
     frame_data_buffer: wgpu::Buffer,
     frame_data_bind_group: wgpu::BindGroup,
     camera_bind_group: wgpu::BindGroup,
     hittable_list_bind_group: wgpu::BindGroup,
+    need_redraw: bool,
     #[allow(dead_code)]
     window: &'a Window,
 }
@@ -121,7 +122,7 @@ impl<'a> GpuInfo<'a> {
             label: Some("frame_bind_group"),
         });
 
-        let camera = Camera::new(config.width, config.height as f32);
+        let camera = Camera::new(config.width, config.height as f32, Vec3::new(1.0,1.0,1.0));
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
@@ -265,17 +266,22 @@ impl<'a> GpuInfo<'a> {
             render_pipeline,
             camera,
             camera_buffer,
-            camera_bind_group_layout,
             vertex_buffer,
             frame_data_buffer,
             frame_data_bind_group,
             camera_bind_group,
             hittable_list_bind_group,
+            need_redraw: true,
             window,
         };
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
+
+        if !self.need_redraw {
+            return Ok(());
+        }
+
         let frame = self.surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
@@ -315,6 +321,7 @@ impl<'a> GpuInfo<'a> {
 
         self.queue.submit(Some(encoder.finish()));
         frame.present();
+        self.need_redraw = false;
         Ok(())
     }
 
@@ -323,29 +330,39 @@ impl<'a> GpuInfo<'a> {
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
-        self.camera = Camera::new(self.config.width, self.config.height as f32);
-        self.camera_buffer = self.device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Camera Buffer"),
-                contents: bytemuck::cast_slice(&[self.camera]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }
-        );
-        self.camera_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.camera_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &self.camera_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                }
-            ],
-            label: Some("camera_bind_group"),
-        });
+        self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center);
+        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
+        self.need_redraw = true;
     }
+
+    fn handle_key(&mut self, event: &KeyEvent) {
+        let speed = 0.1;
+        match event.physical_key {
+            PhysicalKey::Code(KeyCode::KeyW) => {
+                self.camera.center += Vec3::new(0.0, 0.0, -speed);
+            }
+            PhysicalKey::Code(KeyCode::KeyS) => {
+                self.camera.center += Vec3::new(0.0, 0.0, speed);
+            }
+            PhysicalKey::Code(KeyCode::KeyA) => {
+                self.camera.center += Vec3::new(-speed, 0.0, 0.0);
+            }
+            PhysicalKey::Code(KeyCode::KeyD) => {
+                self.camera.center += Vec3::new(speed, 0.0, 0.0);
+            }
+            PhysicalKey::Code(KeyCode::KeyQ) => {
+                self.camera.center += Vec3::new(0.0, -speed, 0.0);
+            }
+            PhysicalKey::Code(KeyCode::KeyE) => {
+                self.camera.center += Vec3::new(0.0, speed, 0.0);
+            }
+            _ => {}
+        }
+        self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center);
+        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
+        self.need_redraw = true;
+        self.window.request_redraw();
+    }   
 
  
 }
@@ -411,6 +428,9 @@ async fn run() {
                         gpu_info.render().unwrap();
                     }
                     WindowEvent::CloseRequested => target.exit(),
+                    WindowEvent::KeyboardInput { event, .. } => {
+                        gpu_info.handle_key(&event);
+                    }
                     _ => {}
                 };
             }

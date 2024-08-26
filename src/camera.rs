@@ -24,12 +24,11 @@ pub struct Camera {
 impl Camera {
 
 
-    pub fn new(image_width: u32, image_height: f32) -> Self {
+    pub fn new(image_width: u32, image_height: f32, center: Vec3) -> Self {
         let aspect_ratio = image_width as f32 / image_height;
         let focal_length: f32 = 1.0;
         let view_height: f32 = 2.0;
-        let center = Vec3::ZERO;
-        let samples_per_pixel = 2;
+        let samples_per_pixel = 1;
         let max_depth = 10;
         let pixels_sample_scale = 1.0 / (samples_per_pixel as f32);
         let view_width: f32 = view_height * (image_width as f32 / image_height as f32);
