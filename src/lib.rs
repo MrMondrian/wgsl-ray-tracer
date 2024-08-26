@@ -122,7 +122,7 @@ impl<'a> GpuInfo<'a> {
             label: Some("frame_bind_group"),
         });
 
-        let camera = Camera::new(config.width, config.height as f32, Vec3::new(1.0,1.0,1.0));
+        let camera = Camera::new(config.width, config.height as f32, Vec3::ZERO);
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
@@ -351,10 +351,10 @@ impl<'a> GpuInfo<'a> {
                 self.camera.center += Vec3::new(speed, 0.0, 0.0);
             }
             PhysicalKey::Code(KeyCode::KeyQ) => {
-                self.camera.center += Vec3::new(0.0, -speed, 0.0);
+                self.camera.center += Vec3::new(0.0, speed, 0.0);
             }
             PhysicalKey::Code(KeyCode::KeyE) => {
-                self.camera.center += Vec3::new(0.0, speed, 0.0);
+                self.camera.center += Vec3::new(0.0, -speed, 0.0);
             }
             _ => {}
         }
