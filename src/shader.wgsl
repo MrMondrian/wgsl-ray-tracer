@@ -33,13 +33,11 @@ fn vs_main(
     return out;
 }
 
-@group(0) @binding(0) var<uniform> frame_data: vec2<u32>;
+@group(0) @binding(0) var<uniform> camera: Camera;
 
-@group(1) @binding(0) var<uniform> camera: Camera;
+@group(1) @binding(0) var<storage,read> hitabble_list: array<Hitable>;
 
-@group(2) @binding(0) var<storage,read> hitabble_list: array<Hitable>;
-
-@group(3) @binding(0) var<storage,read_write> prev_frame: array<vec4<f32>>;
+@group(2) @binding(0) var<storage,read_write> prev_frame: array<vec4<f32>>;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -55,28 +53,16 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let prev_color = prev_frame[u + v * camera.image_width];
 
-    // for(var i = u32(1); i <= camera.samples_per_pixel; i = i + 1) {
-    //     for(var j = u32(1); j <= camera.samples_per_pixel; j = j + 1) {
-            // let sample = vec2<f32>(f32(i) / f32(camera.samples_per_pixel) - 0.5, f32(j) / f32(camera.samples_per_pixel) - 0.5);
-            let sample = sample_square(seed);
-            let pixel_loc = camera.pixel00_loc + ((x + sample.x) * camera.pixel_delta_u) + ((y + sample.y) * camera.pixel_delta_v);
+    let sample = sample_square(seed);
+    let pixel_loc = camera.pixel00_loc + ((x + sample.x) * camera.pixel_delta_u) + ((y + sample.y) * camera.pixel_delta_v);
 
-            let ray_origin = camera.center;
-            let ray_direction = pixel_loc - ray_origin;
-            let ray = Ray(ray_origin, ray_direction);
-            let sample_color = ray_color(ray, seed);
-            let color = (f32(camera.iteration - 1u) * prev_color + sample_color) / f32(camera.iteration);
-            prev_frame[u + v * camera.image_width] = color;
-            return color;
-            // for(var k = u32(0); k < 10; k = k + 1) {
-            //     seed = sample_vec3(seed.yzx);
-            //     color += ray_color(ray, seed);
-            // }
-            // seed += color.xyz;
-    //     }
-    // }
-    // return color / f32(camera.samples_per_pixel * camera.samples_per_pixel * 10);
-
+    let ray_origin = camera.center;
+    let ray_direction = pixel_loc - ray_origin;
+    let ray = Ray(ray_origin, ray_direction);
+    let sample_color = ray_color(ray, seed);
+    let color = (f32(camera.iteration - 1u) * prev_color + sample_color) / f32(camera.iteration);
+    prev_frame[u + v * camera.image_width] = color;
+    return color;
 }
 
 fn sample_vec3(rng_seed: vec3<f32>) -> vec3<f32> {

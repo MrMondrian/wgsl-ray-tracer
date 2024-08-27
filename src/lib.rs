@@ -1,5 +1,4 @@
 use std::borrow::Cow;
-use bytemuck::{Zeroable, Pod};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
     event::*,
@@ -7,10 +6,10 @@ use winit::{
     window::Window,
 };
 use wgpu::util::DeviceExt;
-mod camera;
+pub mod camera;
 use crate::camera::Camera;
-mod hittable;
-use crate::hittable::*;
+pub mod hitable;
+use crate::hitable::*;
 use nalgebra::base::{Vector3,Vector4};
 
 
@@ -24,18 +23,16 @@ struct GpuInfo<'a> {
     camera: Camera,
     camera_buffer: wgpu::Buffer,
     vertex_buffer: wgpu::Buffer,
-    frame_data_buffer: wgpu::Buffer,
-    frame_data_bind_group: wgpu::BindGroup,
     camera_bind_group: wgpu::BindGroup,
     prev_pixels_bind_group: wgpu::BindGroup,
-    hittable_list_bind_group: wgpu::BindGroup,
+    hitable_list_bind_group: wgpu::BindGroup,
     need_redraw: bool,
     #[allow(dead_code)]
     window: &'a Window,
 }
 
 impl<'a> GpuInfo<'a> {
-    async fn new(window: &'a Window) -> GpuInfo<'a> {
+    async fn new(window: &'a Window, hitable_list: Vec<Hitable>) -> GpuInfo<'a> {
         let mut size = window.inner_size();
         size.width = size.width.max(1);
         size.height = size.height.max(1);
@@ -87,44 +84,6 @@ impl<'a> GpuInfo<'a> {
             }
         );
 
-        let frame_data_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("frame_data_buffer"),
-            size: std::mem::size_of::<[f32; 2]>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let frame_data_bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }
-            ],
-            label: Some("frame_bind_group_layout"),
-        });
-
-        let frame_data_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &frame_data_bind_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &frame_data_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                }
-            ],
-            label: Some("frame_bind_group"),
-        });
-
         let camera = Camera::new(config.width, config.height as f32, Vector3::<f32>::zeros());
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -164,30 +123,16 @@ impl<'a> GpuInfo<'a> {
             label: Some("camera_bind_group"),
         });
 
-        let sphere1 = Sphere::new(Vector3::new(0.0, 0.0, -1.2), 0.5);
-        let material1 = Material::new(Vector3::new(0.8, 0.3, 0.3), 0);
-        let sphere2: Sphere = Sphere::new(Vector3::new(0.0, -100.5, -1.0), 100.0);
-        let material2 = Material::new(Vector3::new(0.8, 0.8, 0.0), 0);
-        let sphere3: Sphere = Sphere::new(Vector3::new(-1.0, 0.0, -1.0), 0.5);
-        let material3 = Material::new(Vector3::new(0.8, 0.6, 0.2), 1);
-        let sphere4: Sphere = Sphere::new(Vector3::new(1.0, 0.0, -1.0), 0.5);
-        let material4 = Material::new(Vector3::new(0.8, 0.8, 0.8), 1);
         
-        let hittable1 = Hittable::new(0, sphere1, material1);
-        let hittable2 = Hittable::new(0, sphere2, material2);
-        let hittable3 = Hittable::new(0, sphere3, material3);
-        let hittable4 = Hittable::new(0, sphere4, material4);
-
-        let hittable_list = vec![hittable1, hittable2, hittable3, hittable4];
-        let hittable_list_buffer = device.create_buffer_init(
+        let hitable_list_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
-                label: Some("Hittable List Buffer"),
-                contents: bytemuck::cast_slice(hittable_list.as_slice()),
+                label: Some("Hitable List Buffer"),
+                contents: bytemuck::cast_slice(hitable_list.as_slice()),
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             }
         );
 
-        let hittable_list_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        let hitable_list_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
@@ -200,26 +145,27 @@ impl<'a> GpuInfo<'a> {
                     count: None,
                 }
             ],
-            label: Some("hittable_list_bind_group_layout"),
+            label: Some("hitable_list_bind_group_layout"),
         });
 
-        let hittable_list_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &hittable_list_bind_group_layout,
+        let hitable_list_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &hitable_list_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &hittable_list_buffer,
+                        buffer: &hitable_list_buffer,
                         offset: 0,
                         size: None,
                     }),
                 }
             ],
-            label: Some("hittable_list_bind_group"),
+            label: Some("hitable_list_bind_group"),
         });
 
 
-        let prev_pixels = vec![Vector4::<f32>::zeros(); config.width as usize * config.height as usize];
+        let max_size = window.outer_size();
+        let prev_pixels = vec![Vector4::<f32>::zeros(); max_size.width as usize * max_size.height as usize];
         let prev_pixels_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Previous Pixels Buffer"),
@@ -269,9 +215,8 @@ impl<'a> GpuInfo<'a> {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
             bind_group_layouts: &[
-                &frame_data_bind_layout,
                 &camera_bind_group_layout,
-                &hittable_list_bind_group_layout,
+                &hitable_list_bind_group_layout,
                 &prev_pixels_bind_group_layout,
             ],
             push_constant_ranges: &[],
@@ -312,10 +257,8 @@ impl<'a> GpuInfo<'a> {
             camera,
             camera_buffer,
             vertex_buffer,
-            frame_data_buffer,
-            frame_data_bind_group,
             camera_bind_group,
-            hittable_list_bind_group,
+            hitable_list_bind_group,
             prev_pixels_bind_group,
             need_redraw: true,
             window,
@@ -324,9 +267,9 @@ impl<'a> GpuInfo<'a> {
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
 
-        // if !self.need_redraw {
-        //     return Ok(());
-        // }
+        if self.camera.iteration > 50 {
+            return Ok(());
+        }
 
         let frame = self.surface
             .get_current_texture()
@@ -354,14 +297,10 @@ impl<'a> GpuInfo<'a> {
                     timestamp_writes: None,
                     occlusion_query_set: None,
                 });
-            let inner_size = self.window.inner_size();
-            let frame_data = [inner_size.width as u32, inner_size.height as u32];
-            self.queue.write_buffer(&self.frame_data_buffer, 0, bytemuck::cast_slice(&frame_data)); 
             rpass.set_pipeline(&self.render_pipeline);
-            rpass.set_bind_group(0, &self.frame_data_bind_group, &[]);
-            rpass.set_bind_group(1, &self.camera_bind_group, &[]);
-            rpass.set_bind_group(2, &self.hittable_list_bind_group, &[]);
-            rpass.set_bind_group(3, &self.prev_pixels_bind_group, &[]);
+            rpass.set_bind_group(0, &self.camera_bind_group, &[]);
+            rpass.set_bind_group(1, &self.hitable_list_bind_group, &[]);
+            rpass.set_bind_group(2, &self.prev_pixels_bind_group, &[]);
             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             rpass.draw(0..VERTICES.len() as u32, 0..1);
         }
@@ -382,7 +321,6 @@ impl<'a> GpuInfo<'a> {
         self.surface.configure(&self.device, &self.config);
         self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
-        self.need_redraw = true;
     }
 
     fn handle_key(&mut self, event: &KeyEvent) {
@@ -417,7 +355,7 @@ impl<'a> GpuInfo<'a> {
  
 }
 
-async fn run() {
+async fn run(hitable_list: Vec<Hitable>) {
     let event_loop = EventLoop::new().unwrap();
     #[allow(unused_mut)]
     let mut builder = winit::window::WindowBuilder::new()
@@ -437,7 +375,7 @@ async fn run() {
         builder = builder.with_canvas(Some(canvas));
     }
     let window = builder.build(&event_loop).unwrap();
-    let mut gpu_info = GpuInfo::new(&window).await;
+    let mut gpu_info = GpuInfo::new(&window, hitable_list).await;
 
     #[cfg(target_arch = "wasm32")]
     {
@@ -489,7 +427,7 @@ async fn run() {
 
 }
 
-pub fn ray_tracer() {
+pub fn ray_tracer(hitable_list: Vec<Hitable>) {
     #[cfg(target_arch = "wasm32")]
     {
         wasm_logger::init(wasm_logger::Config::default());
@@ -498,7 +436,7 @@ pub fn ray_tracer() {
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-        pollster::block_on(run());
+        pollster::block_on(run(hitable_list));
     }
 }
 

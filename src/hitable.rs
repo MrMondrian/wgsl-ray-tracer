@@ -2,7 +2,7 @@ use nalgebra::Vector3;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-pub struct Hittable {
+pub struct Hitable {
     kind: u32,
     _padding: [u32; 3], // Padding to align with the next field
     sphere: Sphere,
@@ -10,7 +10,7 @@ pub struct Hittable {
 }
 
 
-impl Hittable {
+impl Hitable {
     pub fn new(kind: u32, sphere: Sphere, material: Material) -> Self {
         Self {
             kind,
@@ -21,8 +21,8 @@ impl Hittable {
     }
 }
 
-unsafe impl bytemuck::Pod for Hittable {}
-unsafe impl bytemuck::Zeroable for Hittable {}
+unsafe impl bytemuck::Pod for Hitable {}
+unsafe impl bytemuck::Zeroable for Hitable {}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug,)]
