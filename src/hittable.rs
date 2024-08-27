@@ -1,4 +1,4 @@
-use glam::Vec3;
+use nalgebra::Vector3;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -27,12 +27,12 @@ unsafe impl bytemuck::Zeroable for Hittable {}
 #[repr(C)]
 #[derive(Copy, Clone, Debug,)]
 pub struct Sphere {
-    center: Vec3,
+    center: Vector3<f32>,
     radius: f32,
 }
 
 impl Sphere {
-    pub fn new(center: Vec3, radius: f32) -> Self {
+    pub fn new(center: Vector3<f32>, radius: f32) -> Self {
         Self {
             center,
             radius,
@@ -46,12 +46,12 @@ unsafe impl bytemuck::Zeroable for Sphere {}
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Material {
-    albedo: Vec3,
+    albedo: Vector3<f32>,
     kind: u32,
 }
 
 impl Material {
-    pub fn new(albedo: Vec3, kind: u32) -> Self {
+    pub fn new(albedo: Vector3<f32>, kind: u32) -> Self {
         Self {
             albedo,
             kind,

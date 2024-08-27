@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use bytemuck::{Zeroable, Pod};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
     event::*,
@@ -10,7 +11,8 @@ mod camera;
 use crate::camera::Camera;
 mod hittable;
 use crate::hittable::*;
-use glam::Vec3;
+use nalgebra::base::{Vector3,Vector4};
+
 
 struct GpuInfo<'a> {
     surface: wgpu::Surface<'a>,
@@ -25,6 +27,7 @@ struct GpuInfo<'a> {
     frame_data_buffer: wgpu::Buffer,
     frame_data_bind_group: wgpu::BindGroup,
     camera_bind_group: wgpu::BindGroup,
+    prev_pixels_bind_group: wgpu::BindGroup,
     hittable_list_bind_group: wgpu::BindGroup,
     need_redraw: bool,
     #[allow(dead_code)]
@@ -122,7 +125,7 @@ impl<'a> GpuInfo<'a> {
             label: Some("frame_bind_group"),
         });
 
-        let camera = Camera::new(config.width, config.height as f32, Vec3::ZERO);
+        let camera = Camera::new(config.width, config.height as f32, Vector3::<f32>::zeros());
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
@@ -161,14 +164,14 @@ impl<'a> GpuInfo<'a> {
             label: Some("camera_bind_group"),
         });
 
-        let sphere1 = Sphere::new(Vec3::new(0.0, 0.0, -1.2), 0.5);
-        let material1 = Material::new(Vec3::new(0.8, 0.3, 0.3), 0);
-        let sphere2: Sphere = Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0);
-        let material2 = Material::new(Vec3::new(0.8, 0.8, 0.0), 0);
-        let sphere3: Sphere = Sphere::new(Vec3::new(-1.0, 0.0, -1.0), 0.5);
-        let material3 = Material::new(Vec3::new(0.8, 0.6, 0.2), 1);
-        let sphere4: Sphere = Sphere::new(Vec3::new(1.0, 0.0, -1.0), 0.5);
-        let material4 = Material::new(Vec3::new(0.8, 0.8, 0.8), 1);
+        let sphere1 = Sphere::new(Vector3::new(0.0, 0.0, -1.2), 0.5);
+        let material1 = Material::new(Vector3::new(0.8, 0.3, 0.3), 0);
+        let sphere2: Sphere = Sphere::new(Vector3::new(0.0, -100.5, -1.0), 100.0);
+        let material2 = Material::new(Vector3::new(0.8, 0.8, 0.0), 0);
+        let sphere3: Sphere = Sphere::new(Vector3::new(-1.0, 0.0, -1.0), 0.5);
+        let material3 = Material::new(Vector3::new(0.8, 0.6, 0.2), 1);
+        let sphere4: Sphere = Sphere::new(Vector3::new(1.0, 0.0, -1.0), 0.5);
+        let material4 = Material::new(Vector3::new(0.8, 0.8, 0.8), 1);
         
         let hittable1 = Hittable::new(0, sphere1, material1);
         let hittable2 = Hittable::new(0, sphere2, material2);
@@ -216,6 +219,47 @@ impl<'a> GpuInfo<'a> {
         });
 
 
+        let prev_pixels = vec![Vector4::<f32>::zeros(); config.width as usize * config.height as usize];
+        let prev_pixels_buffer = device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("Previous Pixels Buffer"),
+                contents: bytemuck::cast_slice(prev_pixels.as_slice()),
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            }
+        );
+
+        let prev_pixels_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }
+            ],
+            label: Some("prev_pixels_bind_group_layout"),
+        });
+
+        let prev_pixels_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &prev_pixels_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                        buffer: &prev_pixels_buffer,
+                        offset: 0,
+                        size: None,
+                    }),
+                }
+            ],
+            label: Some("prev_pixels_bind_group"),
+        });        
+
+
         // Load the shaders from disk
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -228,6 +272,7 @@ impl<'a> GpuInfo<'a> {
                 &frame_data_bind_layout,
                 &camera_bind_group_layout,
                 &hittable_list_bind_group_layout,
+                &prev_pixels_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
@@ -271,6 +316,7 @@ impl<'a> GpuInfo<'a> {
             frame_data_bind_group,
             camera_bind_group,
             hittable_list_bind_group,
+            prev_pixels_bind_group,
             need_redraw: true,
             window,
         };
@@ -278,9 +324,9 @@ impl<'a> GpuInfo<'a> {
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
 
-        if !self.need_redraw {
-            return Ok(());
-        }
+        // if !self.need_redraw {
+        //     return Ok(());
+        // }
 
         let frame = self.surface
             .get_current_texture()
@@ -315,13 +361,17 @@ impl<'a> GpuInfo<'a> {
             rpass.set_bind_group(0, &self.frame_data_bind_group, &[]);
             rpass.set_bind_group(1, &self.camera_bind_group, &[]);
             rpass.set_bind_group(2, &self.hittable_list_bind_group, &[]);
+            rpass.set_bind_group(3, &self.prev_pixels_bind_group, &[]);
             rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
             rpass.draw(0..VERTICES.len() as u32, 0..1);
         }
 
         self.queue.submit(Some(encoder.finish()));
         frame.present();
-        self.need_redraw = false;
+        // self.need_redraw = false;
+        self.camera.iteration += 1;
+        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
+        self.window.request_redraw();
         Ok(())
     }
 
@@ -339,22 +389,22 @@ impl<'a> GpuInfo<'a> {
         let speed = 0.1;
         match event.physical_key {
             PhysicalKey::Code(KeyCode::KeyW) => {
-                self.camera.center += Vec3::new(0.0, 0.0, -speed);
+                self.camera.center += Vector3::new(0.0, 0.0, -speed);
             }
             PhysicalKey::Code(KeyCode::KeyS) => {
-                self.camera.center += Vec3::new(0.0, 0.0, speed);
+                self.camera.center += Vector3::new(0.0, 0.0, speed);
             }
             PhysicalKey::Code(KeyCode::KeyA) => {
-                self.camera.center += Vec3::new(-speed, 0.0, 0.0);
+                self.camera.center += Vector3::new(-speed, 0.0, 0.0);
             }
             PhysicalKey::Code(KeyCode::KeyD) => {
-                self.camera.center += Vec3::new(speed, 0.0, 0.0);
+                self.camera.center += Vector3::new(speed, 0.0, 0.0);
             }
             PhysicalKey::Code(KeyCode::KeyQ) => {
-                self.camera.center += Vec3::new(0.0, speed, 0.0);
+                self.camera.center += Vector3::new(0.0, speed, 0.0);
             }
             PhysicalKey::Code(KeyCode::KeyE) => {
-                self.camera.center += Vec3::new(0.0, -speed, 0.0);
+                self.camera.center += Vector3::new(0.0, -speed, 0.0);
             }
             _ => {}
         }

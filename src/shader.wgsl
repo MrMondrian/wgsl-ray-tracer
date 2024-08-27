@@ -20,6 +20,7 @@ struct Camera {
     @location(7) samples_per_pixel: u32,
     @location(8) pixels_sample_scale: f32,
     @location(9) max_depth: u32,
+    @location(10) iteration: u32,
 }
 
 @vertex
@@ -38,30 +39,43 @@ fn vs_main(
 
 @group(2) @binding(0) var<storage,read> hitabble_list: array<Hitable>;
 
+@group(3) @binding(0) var<storage,read_write> prev_frame: array<vec4<f32>>;
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     let x = in.tex_coords.x * f32(camera.image_width);
     let y = in.tex_coords.y * f32(camera.image_height);
     
-    var color = vec4<f32>(0.0, 0.0, 0.0,0.0);
     var seed = vec3<f32>(in.tex_coords, in.tex_coords.x * in.tex_coords.y);
-    for(var i = u32(1); i <= camera.samples_per_pixel; i = i + 1) {
-        for(var j = u32(1); j <= camera.samples_per_pixel; j = j + 1) {
-            let sample = vec2<f32>(f32(i) / f32(camera.samples_per_pixel) - 0.5, f32(j) / f32(camera.samples_per_pixel) - 0.5);
+    seed = seed * f32(camera.iteration);
+
+    let u = u32(floor(x));
+    let v = u32(floor(y));
+
+    let prev_color = prev_frame[u + v * camera.image_width];
+
+    // for(var i = u32(1); i <= camera.samples_per_pixel; i = i + 1) {
+    //     for(var j = u32(1); j <= camera.samples_per_pixel; j = j + 1) {
+            // let sample = vec2<f32>(f32(i) / f32(camera.samples_per_pixel) - 0.5, f32(j) / f32(camera.samples_per_pixel) - 0.5);
+            let sample = sample_square(seed);
             let pixel_loc = camera.pixel00_loc + ((x + sample.x) * camera.pixel_delta_u) + ((y + sample.y) * camera.pixel_delta_v);
 
             let ray_origin = camera.center;
             let ray_direction = pixel_loc - ray_origin;
             let ray = Ray(ray_origin, ray_direction);
-            for(var k = u32(0); k < 2; k = k + 1) {
-                seed = sample_vec3(seed.yzx);
-                color += ray_color(ray, seed);
-            }
-            seed += color.xyz;
-        }
-    }
-    return color / f32(camera.samples_per_pixel * camera.samples_per_pixel * 2);
+            let sample_color = ray_color(ray, seed);
+            let color = (f32(camera.iteration - 1u) * prev_color + sample_color) / f32(camera.iteration);
+            prev_frame[u + v * camera.image_width] = color;
+            return color;
+            // for(var k = u32(0); k < 10; k = k + 1) {
+            //     seed = sample_vec3(seed.yzx);
+            //     color += ray_color(ray, seed);
+            // }
+            // seed += color.xyz;
+    //     }
+    // }
+    // return color / f32(camera.samples_per_pixel * camera.samples_per_pixel * 10);
 
 }
 
@@ -72,6 +86,14 @@ fn sample_vec3(rng_seed: vec3<f32>) -> vec3<f32> {
         random_vec3(rng_seed + vec3<f32>(6.0, 7.0, 8.0))
     );
     return out * 2.0 - 1.0;
+}
+
+fn sample_square(rng_seed: vec3<f32>) -> vec2<f32> {
+    let sample = vec2<f32>(
+        random_vec3(rng_seed + vec3<f32>(0.0, 1.0, 2.0)),
+        random_vec3(rng_seed + vec3<f32>(3.0, 4.0, 5.0))
+    );
+    return sample - 0.5;
 }
 
 
