@@ -164,8 +164,16 @@ impl<'a> GpuInfo<'a> {
         });
 
 
-        let max_size = window.outer_size();
-        let prev_pixels = vec![Vector4::<f32>::zeros(); max_size.width as usize * max_size.height as usize];
+        let monitor_size = window.current_monitor();
+        let prev_pixels = match monitor_size {
+            Some(monitor) => {
+                let physical_size = monitor.size();
+                vec![Vector4::<f32>::zeros(); physical_size.width as usize * physical_size.height as usize]
+            }
+            None => {
+                vec![Vector4::<f32>::zeros(); size.width as usize * size.height as usize]
+            }
+        };
         let prev_pixels_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Previous Pixels Buffer"),
