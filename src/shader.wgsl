@@ -215,7 +215,8 @@ struct Ray {
 }
 
 const SPHERE = u32(0);
-const max_f32 = 3.40282347e+38;
+// const max_f32 = 3.40282347e+38;
+const max_f32 = 1000000.0;
 
 struct Hitable {
     kind: u32,

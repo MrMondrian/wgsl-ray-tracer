@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Learn WGPU</title>
+    <style>
+        canvas {
+            background-color: black;
+        }
+    </style>
+</head>
+
+<body id="ray-tracer">
+  <canvas id="canvas"></canvas>
+  <script type="module">
+      import init, {ray_tracer} from "./pkg/wgsl.js";
+      init().then(() => {
+          console.log("WASM Loaded");
+          ray_tracer();
+      });
+  </script>
+</body>
+
+</html>

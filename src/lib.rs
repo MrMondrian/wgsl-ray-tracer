@@ -11,6 +11,9 @@ use crate::camera::Camera;
 pub mod hitable;
 use crate::hitable::*;
 use nalgebra::base::{Vector3,Vector4};
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+use log::*;
 
 
 struct GpuInfo<'a> {
@@ -33,13 +36,17 @@ struct GpuInfo<'a> {
 
 impl<'a> GpuInfo<'a> {
     async fn new(window: &'a Window, hitable_list: Vec<Hitable>) -> GpuInfo<'a> {
+        info!("Initializing GPU");
         let mut size = window.inner_size();
         size.width = size.width.max(1);
         size.height = size.height.max(1);
 
+        info!("Creating instance");
         let instance = wgpu::Instance::default();
 
+        info!("Creating surface");
         let surface = instance.create_surface(window).unwrap();
+        info!("Requesting adapter");
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -51,7 +58,8 @@ impl<'a> GpuInfo<'a> {
             .expect("Failed to find an appropriate adapter");
 
         
-
+        
+        info!("Requesting device");
         // Create the logical device and command queue
         let (device, queue) = adapter
             .request_device(
@@ -287,39 +295,40 @@ impl<'a> GpuInfo<'a> {
             .create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder =
             self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: None,
+                label: Some("Render Encoder"),
             });
-        {
-            let mut rpass =
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: None,
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                });
-            rpass.set_pipeline(&self.render_pipeline);
-            rpass.set_bind_group(0, &self.camera_bind_group, &[]);
-            rpass.set_bind_group(1, &self.hitable_list_bind_group, &[]);
-            rpass.set_bind_group(2, &self.prev_pixels_bind_group, &[]);
-            rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            rpass.draw(0..VERTICES.len() as u32, 0..1);
-        }
-
-        self.queue.submit(Some(encoder.finish()));
+        self.set_encoder(&mut encoder, &view);
+        let buffer: wgpu::CommandBuffer = encoder.finish();
+        self.queue.submit(Some(buffer));
         frame.present();
-        // self.need_redraw = false;
         self.camera.iteration += 1;
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
         self.window.request_redraw();
         Ok(())
+    }
+
+    fn set_encoder(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
+        let mut rpass =
+            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        rpass.set_pipeline(&self.render_pipeline);
+        rpass.set_bind_group(0, &self.camera_bind_group, &[]);
+        rpass.set_bind_group(1, &self.hitable_list_bind_group, &[]);
+        rpass.set_bind_group(2, &self.prev_pixels_bind_group, &[]);
+        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        rpass.draw(0..VERTICES.len() as u32, 0..1);
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -364,12 +373,14 @@ impl<'a> GpuInfo<'a> {
 }
 
 async fn run(hitable_list: Vec<Hitable>) {
+    info!("Running");
     let event_loop = EventLoop::new().unwrap();
     #[allow(unused_mut)]
-    let mut builder = winit::window::WindowBuilder::new()
-        .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
+    let mut builder = winit::window::WindowBuilder::new();
+        // .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
     #[cfg(target_arch = "wasm32")]
     {
+        info!("Setting canvas");
         use wasm_bindgen::JsCast;
         use winit::platform::web::WindowBuilderExtWebSys;
         let canvas = web_sys::window()
@@ -382,13 +393,16 @@ async fn run(hitable_list: Vec<Hitable>) {
             .unwrap();
         builder = builder.with_canvas(Some(canvas));
     }
+    info!("Building window");
     let window = builder.build(&event_loop).unwrap();
+    info!("Creating GPU info");
     let mut gpu_info = GpuInfo::new(&window, hitable_list).await;
 
     #[cfg(target_arch = "wasm32")]
     {
         // Winit prevents sizing with CSS, so we have to set
         // the size manually when on web.
+        info!("Setting window size");
         use winit::dpi::PhysicalSize;
         let _ = window.request_inner_size(PhysicalSize::new(450, 400));
 
@@ -396,14 +410,14 @@ async fn run(hitable_list: Vec<Hitable>) {
         web_sys::window()
             .and_then(|win| win.document())
             .and_then(|doc| {
-                let dst = doc.get_element_by_id("wasm-example")?;
+                let dst = doc.get_element_by_id("ray-tracer")?;
                 let canvas = web_sys::Element::from(window.canvas()?);
                 dst.append_child(&canvas).ok()?;
                 Some(())
             })
             .expect("Couldn't append canvas to document body.");
     }
-
+    info!("Starting event loop");
     event_loop
         .run(move |event, target| {
             // Have the closure take ownership of the resources.
@@ -418,13 +432,16 @@ async fn run(hitable_list: Vec<Hitable>) {
             {
                 match event {
                     WindowEvent::Resized(new_size) => {
+                        info!("Resized to {:?}", new_size);
                         gpu_info.resize(new_size);
                     }
                     WindowEvent::RedrawRequested => {
+                        info!("Redraw requested");
                         gpu_info.render().unwrap();
                     }
                     WindowEvent::CloseRequested => target.exit(),
                     WindowEvent::KeyboardInput { event, .. } => {
+                        info!("Keyboard input");
                         gpu_info.handle_key(&event);
                     }
                     _ => {}
@@ -435,11 +452,29 @@ async fn run(hitable_list: Vec<Hitable>) {
 
 }
 
-pub fn ray_tracer(hitable_list: Vec<Hitable>) {
+#[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
+pub fn ray_tracer() {
+
+    let sphere1 = Sphere::new(Vector3::new(0.0, 0.0, -1.2), 0.5);
+    let material1 = Material::new(Vector3::new(0.8, 0.3, 0.3), 0);
+    let sphere2: Sphere = Sphere::new(Vector3::new(0.0, -100.5, -1.0), 100.0);
+    let material2 = Material::new(Vector3::new(0.8, 0.8, 0.0), 0);
+    let sphere3: Sphere = Sphere::new(Vector3::new(-1.0, 0.0, -1.0), 0.5);
+    let material3 = Material::new(Vector3::new(0.8, 0.6, 0.2), 1);
+    let sphere4: Sphere = Sphere::new(Vector3::new(1.0, 0.0, -1.0), 0.5);
+    let material4 = Material::new(Vector3::new(0.8, 0.8, 0.8), 1);
+    
+    let hitable1 = Hitable::new(0, sphere1, material1);
+    let hitable2 = Hitable::new(0, sphere2, material2);
+    let hitable3 = Hitable::new(0, sphere3, material3);
+    let hitable4 = Hitable::new(0, sphere4, material4);
+
+    let hitable_list = vec![hitable1, hitable2, hitable3, hitable4];
+
     #[cfg(target_arch = "wasm32")]
     {
-        wasm_logger::init(wasm_logger::Config::default());
-        wasm_bindgen_futures::spawn_local(run());
+        console_log::init().expect("could not initialize logger");
+        wasm_bindgen_futures::spawn_local(run(hitable_list));
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
