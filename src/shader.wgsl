@@ -21,6 +21,7 @@ struct Camera {
     @location(8) pixels_sample_scale: f32,
     @location(9) max_depth: u32,
     @location(10) iteration: u32,
+    @location(11) rotation: mat4x4<f32>,
 }
 
 @vertex
@@ -57,7 +58,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let pixel_loc = camera.pixel00_loc + ((x + sample.x) * camera.pixel_delta_u) + ((y + sample.y) * camera.pixel_delta_v);
 
     let ray_origin = camera.center;
-    let ray_direction = pixel_loc - ray_origin;
+    var ray_direction = pixel_loc - ray_origin;
+    ray_direction = mat_4_to_3(camera.rotation) * ray_direction;
     let ray = Ray(ray_origin, ray_direction);
     let sample_color = ray_color(ray, seed);
     let color = (f32(camera.iteration - 1u) * prev_color + sample_color) / f32(camera.iteration);
@@ -285,4 +287,12 @@ fn float_construct(m: u32) -> f32 {
     let result = (m & ieee_mantissa) | ieee_one;  // Keep only mantissa bits and add exponent
 
     return bitcast<f32>(result) - 1.0;    // Range [0:1]
+}
+
+fn mat_4_to_3(m: mat4x4<f32>) -> mat3x3<f32> {
+    return mat3x3<f32>(
+        vec3<f32>(m[0].xyz),
+        vec3<f32>(m[1].xyz),
+        vec3<f32>(m[2].xyz)
+    );
 }

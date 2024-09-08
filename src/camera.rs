@@ -1,4 +1,4 @@
-use nalgebra::Vector3;
+use nalgebra::{Vector3, Matrix4};
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -7,24 +7,30 @@ pub struct Camera {
     pub image_width: u32,
     pub image_height: f32,
     _pad1: f32,  // Padding to align center to 16 bytes
+
     pub center: Vector3<f32>,
     _pad2: f32,  // Padding to align pixel00_loc to 16 bytes
+
     pub pixel00_loc: Vector3<f32>,
     _pad3: f32,  // Padding to align pixel_delta_u to 16 bytes
+
     pub pixel_delta_u: Vector3<f32>,
     _pad4: f32,  // Padding to align pixel_delta_v to 16 bytes
+
     pub pixel_delta_v: Vector3<f32>,
     pub samples_per_pixel: u32,
+
     pub pixels_sample_scale: f32,
     pub max_depth: u32, // if this needs to be > 100 edit the shader
     pub iteration: u32,
     _pad6: f32,  // Padding to align Camera to 16 bytes
+    pub rotation: Matrix4<f32>,
 }
 
 impl Camera {
 
 
-    pub fn new(image_width: u32, image_height: f32, center: Vector3<f32>) -> Self {
+    pub fn new(image_width: u32, image_height: f32, center: Vector3<f32>, rotation: Matrix4<f32>) -> Self {
         let aspect_ratio = image_width as f32 / image_height;
         let focal_length: f32 = 1.0;
         let view_height: f32 = 2.0;
@@ -56,6 +62,7 @@ impl Camera {
             max_depth,
             iteration: 1,
             _pad6: 0.0,
+            rotation: rotation,
         }
     }
 

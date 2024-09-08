@@ -10,7 +10,7 @@ pub mod camera;
 use crate::camera::Camera;
 pub mod hitable;
 use crate::hitable::*;
-use nalgebra::base::{Vector3,Vector4};
+use nalgebra::base::{Vector3,Vector4, Matrix4};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 use log::*;
@@ -92,7 +92,7 @@ impl<'a> GpuInfo<'a> {
             }
         );
 
-        let camera = Camera::new(config.width, config.height as f32, Vector3::<f32>::zeros());
+        let camera = Camera::new(config.width, config.height as f32, Vector3::<f32>::zeros(), Matrix4::<f32>::identity());
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
                 label: Some("Camera Buffer"),
@@ -336,34 +336,74 @@ impl<'a> GpuInfo<'a> {
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
-        self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center);
+        self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center, self.camera.rotation);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
     }
 
     fn handle_key(&mut self, event: &KeyEvent) {
         let speed = 0.1;
+        let rotation3x3 = self.camera.rotation.fixed_view::<3, 3>(0, 0).clone();
         match event.physical_key {
             PhysicalKey::Code(KeyCode::KeyW) => {
-                self.camera.center += Vector3::new(0.0, 0.0, -speed);
+                let move_local = Vector3::new(0.0, 0.0, -speed);
+                let move_global = rotation3x3 * move_local;
+                self.camera.center += move_global;
             }
             PhysicalKey::Code(KeyCode::KeyS) => {
-                self.camera.center += Vector3::new(0.0, 0.0, speed);
+                // self.camera.center += Vector3::new(0.0, 0.0, speed);
+                let move_local = Vector3::new(0.0, 0.0, speed);
+                let move_global = rotation3x3 * move_local;
+                self.camera.center += move_global;
             }
             PhysicalKey::Code(KeyCode::KeyA) => {
-                self.camera.center += Vector3::new(-speed, 0.0, 0.0);
+                // self.camera.center += Vector3::new(-speed, 0.0, 0.0);
+                let move_local = Vector3::new(-speed, 0.0, 0.0);
+                let move_global = rotation3x3 * move_local;
+                self.camera.center += move_global;
             }
             PhysicalKey::Code(KeyCode::KeyD) => {
-                self.camera.center += Vector3::new(speed, 0.0, 0.0);
+                // self.camera.center += Vector3::new(speed, 0.0, 0.0);
+                let move_local = Vector3::new(speed, 0.0, 0.0);
+                let move_global = rotation3x3 * move_local;
+                self.camera.center += move_global;
             }
             PhysicalKey::Code(KeyCode::KeyQ) => {
-                self.camera.center += Vector3::new(0.0, speed, 0.0);
+                // self.camera.center += Vector3::new(0.0, speed, 0.0);
+                let move_local = Vector3::new(0.0, speed, 0.0);
+                let move_global = rotation3x3 * move_local;
+                self.camera.center += move_global;
             }
             PhysicalKey::Code(KeyCode::KeyE) => {
-                self.camera.center += Vector3::new(0.0, -speed, 0.0);
+                // self.camera.center += Vector3::new(0.0, -speed, 0.0);
+                let move_local = Vector3::new(0.0, -speed, 0.0);
+                let move_global = rotation3x3 * move_local;
+                self.camera.center += move_global;
+            }
+            PhysicalKey::Code(KeyCode::KeyJ) => {
+                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::y_axis(), 0.1);
+            }
+            PhysicalKey::Code(KeyCode::KeyL) => {
+                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::y_axis(), -0.1);
+            }
+            PhysicalKey::Code(KeyCode::KeyI) => {
+                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::x_axis(), 0.1);
+            }
+            PhysicalKey::Code(KeyCode::KeyK) => {
+                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::x_axis(), -0.1);
+            }
+            PhysicalKey::Code(KeyCode::KeyU) => {
+                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::z_axis(), 0.1);
+            }
+            PhysicalKey::Code(KeyCode::KeyO) => {
+                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::z_axis(), -0.1);
+            }
+            PhysicalKey::Code(KeyCode::Space) => {
+                self.camera.center = Vector3::zeros();
+                self.camera.rotation = Matrix4::identity();
             }
             _ => {}
         }
-        self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center);
+        self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center, self.camera.rotation);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
         self.need_redraw = true;
         self.window.request_redraw();
