@@ -1,9 +1,10 @@
 use std::borrow::Cow;
+use winit::application::ApplicationHandler;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
     event::*,
-    event_loop::EventLoop,
-    window::Window,
+    event_loop::{ActiveEventLoop, EventLoop},
+    window::{Window, WindowAttributes, WindowId},
 };
 use wgpu::util::DeviceExt;
 pub mod camera;
@@ -69,19 +70,18 @@ impl<'a> GpuInfo<'a> {
         info!("Requesting device");
         // Create the logical device and command queue
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: None,
-                    required_features: wgpu::Features::empty(),
-                    // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
-                    required_limits: wgpu::Limits {
-                        max_storage_buffer_binding_size: 512_u32 << 20,
-                        ..Default::default()
-                    },
-                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+            .request_device(&wgpu::DeviceDescriptor {
+                label: None,
+                required_features: wgpu::Features::empty(),
+                // Make sure we use the texture resolution limits from the adapter, so we can support images the size of the swapchain.
+                required_limits: wgpu::Limits {
+                    max_storage_buffer_binding_size: 512_u32 << 20,
+                    ..Default::default()
                 },
-                None,
-            )
+                memory_hints: wgpu::MemoryHints::MemoryUsage,
+                trace: wgpu::Trace::Off,
+                experimental_features: wgpu::ExperimentalFeatures::disabled(),
+            })
             .await
             .expect("Failed to create device");
 
@@ -280,14 +280,14 @@ impl<'a> GpuInfo<'a> {
                 &prev_pixels_bind_group_layout,
                 &output_texture_bind_group_layout,
             ],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Compute Pipeline"),
             layout: Some(&compute_pipeline_layout),
             module: &shader,
-            entry_point: "cs_main",
+            entry_point: Some("cs_main"),
             compilation_options: Default::default(),
             cache: None,
         });
@@ -300,7 +300,7 @@ impl<'a> GpuInfo<'a> {
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
             ..Default::default()
         });
 
@@ -349,7 +349,7 @@ impl<'a> GpuInfo<'a> {
         let blit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Blit Pipeline Layout"),
             bind_group_layouts: &[&blit_bind_group_layout],
-            push_constant_ranges: &[],
+            immediate_size: 0,
         });
 
         let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -357,20 +357,20 @@ impl<'a> GpuInfo<'a> {
             layout: Some(&blit_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "blit_vs",
+                entry_point: Some("blit_vs"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "blit_fs",
+                entry_point: Some("blit_fs"),
                 compilation_options: Default::default(),
                 targets: &[Some(swapchain_format.into())],
             }),
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
             cache: None,
         });
 
@@ -444,10 +444,12 @@ impl<'a> GpuInfo<'a> {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
+                    depth_slice: None,
                 })],
                 depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
+                multiview_mask: None,
             });
             render_pass.set_pipeline(&self.blit_pipeline);
             render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
@@ -588,84 +590,108 @@ impl<'a> GpuInfo<'a> {
  
 }
 
-async fn run(hitable_list: Vec<Hitable>) {
+struct App<'a> {
+    hitable_list: Vec<Hitable>,
+    gpu_info: Option<GpuInfo<'a>>,
+    window: Option<Box<Window>>,
+}
+
+impl App<'_> {
+    fn new(hitable_list: Vec<Hitable>) -> Self {
+        Self {
+            hitable_list,
+            gpu_info: None,
+            window: None,
+        }
+    }
+}
+
+impl ApplicationHandler for App<'_> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+
+        info!("Creating window");
+        #[allow(unused_mut)]
+        let mut attributes = WindowAttributes::default();
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            info!("Setting canvas");
+            use wasm_bindgen::JsCast;
+            use winit::platform::web::WindowAttributesExtWebSys;
+            let canvas = web_sys::window()
+                .unwrap()
+                .document()
+                .unwrap()
+                .get_element_by_id("canvas")
+                .unwrap()
+                .dyn_into::<web_sys::HtmlCanvasElement>()
+                .unwrap();
+            attributes = attributes.with_canvas(Some(canvas));
+        }
+
+        let window = Box::new(event_loop.create_window(attributes).unwrap());
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            use winit::dpi::PhysicalSize;
+            let _ = window.request_inner_size(PhysicalSize::new(450, 400));
+
+            use winit::platform::web::WindowExtWebSys;
+            web_sys::window()
+                .and_then(|win| win.document())
+                .and_then(|doc| {
+                    let dst = doc.get_element_by_id("ray-tracer")?;
+                    let canvas = web_sys::Element::from(window.canvas()?);
+                    dst.append_child(&canvas).ok()?;
+                    Some(())
+                })
+                .expect("Couldn't append canvas to document body.");
+        }
+
+        info!("Creating GPU info");
+        let hitable_list = std::mem::take(&mut self.hitable_list);
+
+        // SAFETY: The window is stored in a Box which keeps its address stable.
+        // We store the Box in self.window and ensure it outlives gpu_info.
+        let window_ref: &'static Window = unsafe { &*(&*window as *const Window) };
+        let gpu_info = pollster::block_on(GpuInfo::new(window_ref, hitable_list));
+
+        self.window = Some(window);
+        self.gpu_info = Some(gpu_info);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
+        let Some(gpu_info) = self.gpu_info.as_mut() else {
+            return;
+        };
+
+        match event {
+            WindowEvent::Resized(new_size) => {
+                info!("Resized to {:?}", new_size);
+                gpu_info.resize(new_size);
+            }
+            WindowEvent::RedrawRequested => {
+                info!("Redraw requested");
+                gpu_info.render().unwrap();
+            }
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                info!("Keyboard input");
+                gpu_info.handle_key(&event);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn run(hitable_list: Vec<Hitable>) {
     info!("Running");
     let event_loop = EventLoop::new().unwrap();
-    #[allow(unused_mut)]
-    let mut builder = winit::window::WindowBuilder::new();
-        // .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
-    #[cfg(target_arch = "wasm32")]
-    {
-        info!("Setting canvas");
-        use wasm_bindgen::JsCast;
-        use winit::platform::web::WindowBuilderExtWebSys;
-        let canvas = web_sys::window()
-            .unwrap()
-            .document()
-            .unwrap()
-            .get_element_by_id("canvas")
-            .unwrap()
-            .dyn_into::<web_sys::HtmlCanvasElement>()
-            .unwrap();
-        builder = builder.with_canvas(Some(canvas));
-    }
-    info!("Building window");
-    let window = builder.build(&event_loop).unwrap();
-    info!("Creating GPU info");
-    let mut gpu_info = GpuInfo::new(&window, hitable_list).await;
-
-    #[cfg(target_arch = "wasm32")]
-    {
-        // Winit prevents sizing with CSS, so we have to set
-        // the size manually when on web.
-        info!("Setting window size");
-        use winit::dpi::PhysicalSize;
-        let _ = window.request_inner_size(PhysicalSize::new(450, 400));
-
-        use winit::platform::web::WindowExtWebSys;
-        web_sys::window()
-            .and_then(|win| win.document())
-            .and_then(|doc| {
-                let dst = doc.get_element_by_id("ray-tracer")?;
-                let canvas = web_sys::Element::from(window.canvas()?);
-                dst.append_child(&canvas).ok()?;
-                Some(())
-            })
-            .expect("Couldn't append canvas to document body.");
-    }
-    info!("Starting event loop");
-    event_loop
-        .run(move |event, target| {
-            // Have the closure take ownership of the resources.
-            // `event_loop.run` never returns, therefore we must do this to ensure
-            // the resources are properly cleaned up.
-            let _ = &gpu_info;
-
-            if let Event::WindowEvent {
-                window_id: _,
-                event,
-            } = event
-            {
-                match event {
-                    WindowEvent::Resized(new_size) => {
-                        info!("Resized to {:?}", new_size);
-                        gpu_info.resize(new_size);
-                    }
-                    WindowEvent::RedrawRequested => {
-                        info!("Redraw requested");
-                        gpu_info.render().unwrap();
-                    }
-                    WindowEvent::CloseRequested => target.exit(),
-                    WindowEvent::KeyboardInput { event, .. } => {
-                        info!("Keyboard input");
-                        gpu_info.handle_key(&event);
-                    }
-                    _ => {}
-                };
-            }
-        })
-        .unwrap();
-
+    let mut app = App::new(hitable_list);
+    event_loop.run_app(&mut app).unwrap();
 }
 
 #[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
@@ -690,11 +716,11 @@ pub fn ray_tracer() {
     #[cfg(target_arch = "wasm32")]
     {
         console_log::init().expect("could not initialize logger");
-        wasm_bindgen_futures::spawn_local(run(hitable_list));
+        run(hitable_list);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-        pollster::block_on(run(hitable_list));
+        run(hitable_list);
     }
 }
