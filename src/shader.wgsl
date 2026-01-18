@@ -1,14 +1,3 @@
-struct VertexInput {
-    @location(0) position: vec3<f32>,
-    @location(1) tex_coords: vec2<f32>,
-}
-
-struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) tex_coords: vec2<f32>,
-}
-
-
 struct Camera {
     @location(0) aspect_ratio: f32,
     @location(1) image_width: u32,
@@ -24,38 +13,36 @@ struct Camera {
     @location(11) rotation: mat4x4<f32>,
 }
 
-@vertex
-fn vs_main(
-    model: VertexInput,
-) -> VertexOutput {
-    var out: VertexOutput;
-    out.tex_coords = model.tex_coords;
-    out.clip_position = vec4<f32>(model.position, 1.0);
-    return out;
-}
-
 @group(0) @binding(0) var<uniform> camera: Camera;
 
 @group(1) @binding(0) var<storage,read> hitabble_list: array<Hitable>;
 
 @group(2) @binding(0) var<storage,read_write> prev_frame: array<vec4<f32>>;
 
-@fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+@group(3) @binding(0) var output_texture: texture_storage_2d<rgba8unorm, write>;
 
-    let x = in.tex_coords.x * f32(camera.image_width);
-    let y = in.tex_coords.y * f32(camera.image_height);
-    
-    var seed = vec3<f32>(in.tex_coords, in.tex_coords.x * in.tex_coords.y);
+// Compute shader entry point
+@compute @workgroup_size(8, 8)
+fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
+    let x = global_id.x;
+    let y = global_id.y;
+
+    // Bounds check
+    if x >= camera.image_width || y >= u32(camera.image_height) {
+        return;
+    }
+
+    let fx = f32(x);
+    let fy = f32(y);
+    let tex_coords = vec2<f32>(fx / f32(camera.image_width), fy / camera.image_height);
+
+    var seed = vec3<f32>(tex_coords, tex_coords.x * tex_coords.y);
     seed = seed * f32(camera.iteration);
 
-    let u = u32(floor(x));
-    let v = u32(floor(y));
-
-    let prev_color = prev_frame[u + v * camera.image_width];
+    let prev_color = prev_frame[x + y * camera.image_width];
 
     let sample = sample_square(seed);
-    let pixel_loc = camera.pixel00_loc + ((x + sample.x) * camera.pixel_delta_u) + ((y + sample.y) * camera.pixel_delta_v);
+    let pixel_loc = camera.pixel00_loc + ((fx + sample.x) * camera.pixel_delta_u) + ((fy + sample.y) * camera.pixel_delta_v);
 
     let ray_origin = camera.center;
     var ray_direction = pixel_loc - ray_origin;
@@ -63,8 +50,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let ray = Ray(ray_origin, ray_direction);
     let sample_color = ray_color(ray, seed);
     let color = (f32(camera.iteration - 1u) * prev_color + sample_color) / f32(camera.iteration);
-    prev_frame[u + v * camera.image_width] = color;
-    return color;
+    prev_frame[x + y * camera.image_width] = color;
+    textureStore(output_texture, vec2<i32>(i32(x), i32(y)), color);
+}
+
+// Blit shaders - full-screen triangle using vertex_index trick
+struct BlitVertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) tex_coords: vec2<f32>,
+}
+
+@vertex
+fn blit_vs(@builtin(vertex_index) vertex_index: u32) -> BlitVertexOutput {
+    // Full-screen triangle: 3 vertices that cover the entire screen
+    // Vertex 0: (-1, -1), Vertex 1: (3, -1), Vertex 2: (-1, 3)
+    var out: BlitVertexOutput;
+    let x = f32(i32(vertex_index & 1u) * 4 - 1);
+    let y = f32(i32(vertex_index >> 1u) * 4 - 1);
+    out.position = vec4<f32>(x, y, 0.0, 1.0);
+    // Texture coordinates: (0,1), (2,1), (0,-1) -> after clipping covers (0,0) to (1,1)
+    out.tex_coords = vec2<f32>((x + 1.0) * 0.5, (1.0 - y) * 0.5);
+    return out;
+}
+
+@group(0) @binding(0) var blit_texture: texture_2d<f32>;
+@group(0) @binding(1) var blit_sampler: sampler;
+
+@fragment
+fn blit_fs(in: BlitVertexOutput) -> @location(0) vec4<f32> {
+    return textureSample(blit_texture, blit_sampler, in.tex_coords);
 }
 
 fn sample_vec3(rng_seed: vec3<f32>) -> vec3<f32> {
