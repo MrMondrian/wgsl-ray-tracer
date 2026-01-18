@@ -22,13 +22,20 @@ struct GpuInfo<'a> {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    render_pipeline: wgpu::RenderPipeline,
+    compute_pipeline: wgpu::ComputePipeline,
+    blit_pipeline: wgpu::RenderPipeline,
     camera: Camera,
     camera_buffer: wgpu::Buffer,
-    vertex_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     prev_pixels_bind_group: wgpu::BindGroup,
     hitable_list_bind_group: wgpu::BindGroup,
+    output_texture: wgpu::Texture,
+    output_texture_view: wgpu::TextureView,
+    blit_sampler: wgpu::Sampler,
+    output_texture_bind_group_layout: wgpu::BindGroupLayout,
+    blit_bind_group_layout: wgpu::BindGroupLayout,
+    output_texture_bind_group: wgpu::BindGroup,
+    blit_bind_group: wgpu::BindGroup,
     need_redraw: bool,
     #[allow(dead_code)]
     window: &'a Window,
@@ -83,15 +90,6 @@ impl<'a> GpuInfo<'a> {
             .unwrap();
         surface.configure(&device, &config);
 
-
-        let vertex_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(VERTICES),
-                usage: wgpu::BufferUsages::VERTEX,
-            }
-        );
-
         let camera = Camera::new(config.width, config.height as f32, Vector3::<f32>::zeros(), Matrix4::<f32>::identity());
         let camera_buffer = device.create_buffer_init(
             &wgpu::util::BufferInitDescriptor {
@@ -104,7 +102,7 @@ impl<'a> GpuInfo<'a> {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
                         has_dynamic_offset: false,
@@ -144,7 +142,7 @@ impl<'a> GpuInfo<'a> {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: true },
                         has_dynamic_offset: false,
@@ -194,7 +192,7 @@ impl<'a> GpuInfo<'a> {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Storage { read_only: false },
                         has_dynamic_offset: false,
@@ -228,31 +226,144 @@ impl<'a> GpuInfo<'a> {
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
         });
 
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: None,
+        // Create output texture for compute shader
+        let output_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Output Texture"),
+            size: wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Output texture bind group layout (for compute shader)
+        let output_texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::StorageTexture {
+                        access: wgpu::StorageTextureAccess::WriteOnly,
+                        format: wgpu::TextureFormat::Rgba8Unorm,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                    },
+                    count: None,
+                }
+            ],
+            label: Some("output_texture_bind_group_layout"),
+        });
+
+        let output_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &output_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&output_texture_view),
+                }
+            ],
+            label: Some("output_texture_bind_group"),
+        });
+
+        // Create compute pipeline
+        let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Compute Pipeline Layout"),
             bind_group_layouts: &[
                 &camera_bind_group_layout,
                 &hitable_list_bind_group_layout,
                 &prev_pixels_bind_group_layout,
+                &output_texture_bind_group_layout,
             ],
             push_constant_ranges: &[],
         });
 
+        let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("Compute Pipeline"),
+            layout: Some(&compute_pipeline_layout),
+            module: &shader,
+            entry_point: "cs_main",
+            compilation_options: Default::default(),
+            cache: None,
+        });
+
+        // Create blit sampler
+        let blit_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Blit Sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        // Blit bind group layout
+        let blit_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+            label: Some("blit_bind_group_layout"),
+        });
+
+        let blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &blit_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&output_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&blit_sampler),
+                },
+            ],
+            label: Some("blit_bind_group"),
+        });
+
+        // Create blit pipeline
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
+        let blit_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Blit Pipeline Layout"),
+            bind_group_layouts: &[&blit_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let blit_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Blit Pipeline"),
+            layout: Some(&blit_pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                entry_point: "blit_vs",
+                buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: "blit_fs",
                 compilation_options: Default::default(),
                 targets: &[Some(swapchain_format.into())],
             }),
@@ -263,26 +374,32 @@ impl<'a> GpuInfo<'a> {
             cache: None,
         });
 
-        return Self {
+        Self {
             surface,
             device,
             queue,
             config,
             size,
-            render_pipeline,
+            compute_pipeline,
+            blit_pipeline,
             camera,
             camera_buffer,
-            vertex_buffer,
             camera_bind_group,
-            hitable_list_bind_group,
             prev_pixels_bind_group,
+            hitable_list_bind_group,
+            output_texture,
+            output_texture_view,
+            blit_sampler,
+            output_texture_bind_group_layout,
+            blit_bind_group_layout,
+            output_texture_bind_group,
+            blit_bind_group,
             need_redraw: true,
             window,
-        };
+        }
     }
 
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
-
         if self.camera.iteration > 50 {
             return Ok(());
         }
@@ -297,22 +414,31 @@ impl<'a> GpuInfo<'a> {
             self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
-        self.set_encoder(&mut encoder, &view);
-        let buffer: wgpu::CommandBuffer = encoder.finish();
-        self.queue.submit(Some(buffer));
-        frame.present();
-        self.camera.iteration += 1;
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
-        self.window.request_redraw();
-        Ok(())
-    }
 
-    fn set_encoder(&self, encoder: &mut wgpu::CommandEncoder, view: &wgpu::TextureView) {
-        let mut rpass =
-            encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
+        // Phase 1: Compute pass - ray tracing
+        {
+            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("Compute Pass"),
+                timestamp_writes: None,
+            });
+            compute_pass.set_pipeline(&self.compute_pipeline);
+            compute_pass.set_bind_group(0, &self.camera_bind_group, &[]);
+            compute_pass.set_bind_group(1, &self.hitable_list_bind_group, &[]);
+            compute_pass.set_bind_group(2, &self.prev_pixels_bind_group, &[]);
+            compute_pass.set_bind_group(3, &self.output_texture_bind_group, &[]);
+
+            let workgroup_size = 8u32;
+            let dispatch_x = (self.size.width + workgroup_size - 1) / workgroup_size;
+            let dispatch_y = (self.size.height + workgroup_size - 1) / workgroup_size;
+            compute_pass.dispatch_workgroups(dispatch_x, dispatch_y, 1);
+        }
+
+        // Phase 2: Blit pass - render texture to screen
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Blit Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: view,
+                    view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -323,12 +449,18 @@ impl<'a> GpuInfo<'a> {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-        rpass.set_pipeline(&self.render_pipeline);
-        rpass.set_bind_group(0, &self.camera_bind_group, &[]);
-        rpass.set_bind_group(1, &self.hitable_list_bind_group, &[]);
-        rpass.set_bind_group(2, &self.prev_pixels_bind_group, &[]);
-        rpass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        rpass.draw(0..VERTICES.len() as u32, 0..1);
+            render_pass.set_pipeline(&self.blit_pipeline);
+            render_pass.set_bind_group(0, &self.blit_bind_group, &[]);
+            render_pass.draw(0..3, 0..1); // Full-screen triangle
+        }
+
+        let buffer: wgpu::CommandBuffer = encoder.finish();
+        self.queue.submit(Some(buffer));
+        frame.present();
+        self.camera.iteration += 1;
+        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
+        self.window.request_redraw();
+        Ok(())
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
@@ -338,6 +470,50 @@ impl<'a> GpuInfo<'a> {
         self.surface.configure(&self.device, &self.config);
         self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center, self.camera.rotation);
         self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
+
+        // Recreate output texture at new size
+        self.output_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Output Texture"),
+            size: wgpu::Extent3d {
+                width: new_size.width,
+                height: new_size.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        });
+        self.output_texture_view = self.output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Recreate bind groups that reference the texture
+        self.output_texture_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.output_texture_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.output_texture_view),
+                }
+            ],
+            label: Some("output_texture_bind_group"),
+        });
+
+        self.blit_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &self.blit_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&self.output_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.blit_sampler),
+                },
+            ],
+            label: Some("blit_bind_group"),
+        });
     }
 
     fn handle_key(&mut self, event: &KeyEvent) {
@@ -522,60 +698,3 @@ pub fn ray_tracer() {
         pollster::block_on(run(hitable_list));
     }
 }
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-struct Vertex {
-    position: [f32; 2],
-    tex_coords: [f32; 2], // NEW!
-}
-
-
-impl Vertex {
-    fn desc() -> wgpu::VertexBufferLayout<'static> {
-        use std::mem;
-        wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &[
-                wgpu::VertexAttribute {
-                    offset: 0,
-                    shader_location: 0,
-                    format: wgpu::VertexFormat::Float32x2,
-                },
-                wgpu::VertexAttribute {
-                    offset: mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                    shader_location: 1,
-                    format: wgpu::VertexFormat::Float32x2, // NEW!
-                },
-            ]
-        }
-    }
-}
-
-const VERTICES: &[Vertex] = &[
-    Vertex {
-        position: [-1.0, 1.0],
-        tex_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [-1.0, -1.0],
-        tex_coords: [0.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, -1.0],
-        tex_coords: [1.0, 1.0],
-    },
-    Vertex {
-        position: [-1.0, 1.0],
-        tex_coords: [0.0, 0.0],
-    },
-    Vertex {
-        position: [1.0, -1.0],
-        tex_coords: [1.0, 1.0],
-    },
-    Vertex {
-        position: [1.0, 1.0],
-        tex_coords: [1.0, 0.0],
-    },
-];
