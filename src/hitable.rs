@@ -49,6 +49,12 @@ unsafe impl bytemuck::Zeroable for Sphere {}
 pub struct Texture {
     albedo: Vector3<f32>,
     kind: u32,
+    inv_scale: f32,
+    _padding0: [u32; 3], // Pad to align `even` to 16-byte boundary (offset 32)
+    even: Vector3<f32>,
+    _padding1: u32,
+    odd: Vector3<f32>,
+    _padding2: u32,
 }
 
 impl Texture {
@@ -56,6 +62,25 @@ impl Texture {
         Self {
             albedo,
             kind,
+            inv_scale: 0.0,
+            _padding0: [0; 3],
+            even: Vector3::new(0.0, 0.0, 0.0),
+            _padding1: 0,
+            odd: Vector3::new(0.0, 0.0, 0.0),
+            _padding2: 0,
+        }
+    }
+
+    pub fn checker(inv_scale: f32, even: Vector3<f32>, odd: Vector3<f32>) -> Self {
+        Self {
+            albedo: Vector3::new(0.0, 0.0, 0.0),
+            kind: 1, // CHECKER
+            inv_scale,
+            _padding0: [0; 3],
+            even,
+            _padding1: 0,
+            odd,
+            _padding2: 0,
         }
     }
 }
