@@ -58,10 +58,10 @@ pub struct Texture {
 }
 
 impl Texture {
-    pub fn new(albedo: Vector3<f32>, kind: u32) -> Self {
+    pub fn solid(albedo: Vector3<f32>) -> Self {
         Self {
             albedo,
-            kind,
+            kind: 0,
             inv_scale: 0.0,
             _padding0: [0; 3],
             even: Vector3::new(0.0, 0.0, 0.0),

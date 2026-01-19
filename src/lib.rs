@@ -698,16 +698,16 @@ fn run(hitable_list: Vec<Hitable>) {
 pub fn ray_tracer() {
 
     let sphere1 = Sphere::new(Vector3::new(0.0, 0.0, -1.2), 0.5);
-    let texture1 = Texture::new(Vector3::new(0.8, 0.3, 0.3), 0);
+    let texture1 = Texture::solid(Vector3::new(0.8, 0.3, 0.3));
     let material1 = Material::new(texture1, 0);
     let sphere2: Sphere = Sphere::new(Vector3::new(0.0, -100.5, -1.0), 100.0);
-    let texture2 = Texture::new(Vector3::new(0.8, 0.8, 0.0), 0);
+    let texture2 = Texture::checker(1.0, Vector3::new(1.0,1.0,1.0), Vector3::new(0.0,0.0,0.0));
     let material2 = Material::new(texture2, 0);
     let sphere3: Sphere = Sphere::new(Vector3::new(-1.0, 0.0, -1.0), 0.5);
-    let texture3 = Texture::new(Vector3::new(0.8, 0.6, 0.2), 0);
+    let texture3 = Texture::solid(Vector3::new(0.8, 0.6, 0.2));
     let material3 = Material::new(texture3, 1);
     let sphere4: Sphere = Sphere::new(Vector3::new(1.0, 0.0, -1.0), 0.5);
-    let texture4 = Texture::new(Vector3::new(0.8, 0.8, 0.8), 0);
+    let texture4 = Texture::solid(Vector3::new(0.8, 0.8, 0.8));
     let material4 = Material::new(texture4, 1);
     
     let hitable1 = Hitable::new(0, sphere1, material1);
