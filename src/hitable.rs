@@ -43,18 +43,40 @@ impl Sphere {
 unsafe impl bytemuck::Pod for Sphere {}
 unsafe impl bytemuck::Zeroable for Sphere {}
 
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
-pub struct Material {
+pub struct Texture {
     albedo: Vector3<f32>,
     kind: u32,
 }
 
-impl Material {
+impl Texture {
     pub fn new(albedo: Vector3<f32>, kind: u32) -> Self {
         Self {
             albedo,
             kind,
+        }
+    }
+}
+
+unsafe impl bytemuck::Pod for Texture {}
+unsafe impl bytemuck::Zeroable for Texture {}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct Material {
+    tex: Texture,
+    kind: u32,
+    _padding: [u32; 3], // Pad to 32 bytes to match WGSL layout
+}
+
+impl Material {
+    pub fn new(tex: Texture, kind: u32) -> Self {
+        Self {
+            tex,
+            kind,
+            _padding: [0; 3],
         }
     }
 }

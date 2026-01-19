@@ -206,15 +206,30 @@ fn scatter(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> Scatt
 fn scatter_lambertian(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
     let scatter_ray = random_vec3_on_hemisphere(rec.normal, seed);
     let scattered = Ray(rec.p, scatter_ray);
-    let attenuation = material.albedo;
+    let attenuation = get_attenuation(material.tex);
     return ScatterRecord(true, attenuation, scattered);
 }
 
 fn scatter_metal(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
     let reflected = reflect(normalize(r.direction), rec.normal);
     let scattered = Ray(rec.p, reflected);
-    let attenuation = material.albedo;
+    let attenuation = get_attenuation(material.tex);
     return ScatterRecord(true, attenuation, scattered);
+}
+
+fn get_attenuation(tex: Texture) -> vec3<f32> { 
+    switch tex.kind { 
+        case SOLID_COLOR: {
+            return get_attenuation_solid(tex);
+        }
+        default: {
+            return vec3(0.0,0.0,0.0);
+        }
+    }
+}
+
+fn get_attenuation_solid(tex: Texture) -> vec3<f32> {
+    return tex.albedo;
 }
 
 fn reflect(v: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
@@ -222,7 +237,7 @@ fn reflect(v: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
 }
 
 fn null_hit_record() -> HitRecord {
-    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), Material(vec3(0.0, 0.0, 0.0), 0));
+    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), Material(Texture(vec3(0.0,0.0,0.0),0), 0));
 }
 
 struct Ray {
@@ -260,12 +275,21 @@ struct ScatterRecord {
 }
 
 struct Material {
+    tex: Texture,
+    kind: u32,
+}
+
+struct Texture {
     albedo: vec3<f32>,
     kind: u32,
 }
 
 const LAMBERTIAN = u32(0);
 const METAL = u32(1);
+
+const SOLID_COLOR = u32(0);
+const CHECKER = u32(1);
+const IMAGE = u32(2);
 
 fn random_vec3_on_hemisphere(normal: vec3<f32>, rng_seed: vec3<f32>) -> vec3<f32> {
     let p = normal + sample_vec3(rng_seed);
