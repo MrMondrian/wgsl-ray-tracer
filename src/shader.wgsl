@@ -237,7 +237,11 @@ fn reflect(v: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
 }
 
 fn null_hit_record() -> HitRecord {
-    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), Material(Texture(vec3(0.0,0.0,0.0),0), 0));
+    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), Material(null_texture(), 0));
+}
+
+fn null_texture() -> Texture {
+    return Texture(vec3(0.0,0.0,0.0),0, 0.0, vec3(0.0,0.0,0.0), vec3(0.0,0.0,0.0));
 }
 
 struct Ray {
@@ -282,6 +286,9 @@ struct Material {
 struct Texture {
     albedo: vec3<f32>,
     kind: u32,
+    inv_scale: f32,
+    even: vec3<f32>,
+    odd: vec3<f32>,
 }
 
 const LAMBERTIAN = u32(0);
