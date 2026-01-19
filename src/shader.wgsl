@@ -206,21 +206,24 @@ fn scatter(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> Scatt
 fn scatter_lambertian(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
     let scatter_ray = random_vec3_on_hemisphere(rec.normal, seed);
     let scattered = Ray(rec.p, scatter_ray);
-    let attenuation = get_attenuation(material.tex);
+    let attenuation = get_attenuation(material.tex, rec);
     return ScatterRecord(true, attenuation, scattered);
 }
 
 fn scatter_metal(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
     let reflected = reflect(normalize(r.direction), rec.normal);
     let scattered = Ray(rec.p, reflected);
-    let attenuation = get_attenuation(material.tex);
+    let attenuation = get_attenuation(material.tex, rec);
     return ScatterRecord(true, attenuation, scattered);
 }
 
-fn get_attenuation(tex: Texture) -> vec3<f32> { 
+fn get_attenuation(tex: Texture, rec: HitRecord) -> vec3<f32> { 
     switch tex.kind { 
         case SOLID_COLOR: {
             return get_attenuation_solid(tex);
+        }
+        case CHECKER: {
+            return get_attentuation_checker(tex, rec);
         }
         default: {
             return vec3(0.0,0.0,0.0);
@@ -230,6 +233,19 @@ fn get_attenuation(tex: Texture) -> vec3<f32> {
 
 fn get_attenuation_solid(tex: Texture) -> vec3<f32> {
     return tex.albedo;
+}
+
+fn get_attentuation_checker(tex: Texture, rec: HitRecord) -> vec3<f32> {
+    let x_int = floor(tex.inv_scale * rec.p.x);
+    let y_int = floor(tex.inv_scale * rec.p.y);
+    let z_int = floor(tex.inv_scale * rec.p.z);
+
+    let is_even = (x_int + y_int + z_int) % 2 == 0;
+    
+    if is_even {
+      return tex.even;
+    }
+    return tex.odd;
 }
 
 fn reflect(v: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
