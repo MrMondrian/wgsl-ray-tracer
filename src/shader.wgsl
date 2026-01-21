@@ -20,6 +20,9 @@ struct Camera {
 @group(2) @binding(0) var<storage,read_write> prev_frame: array<vec4<f32>>;
 
 @group(3) @binding(0) var output_texture: texture_storage_2d<rgba8unorm, write>;
+@group(3) @binding(1) var t_diffuse: texture_2d<f32>;
+
+const PI: f32 = 3.1415926;
 
 // Compute shader entry point
 @compute @workgroup_size(8, 8)
@@ -179,7 +182,8 @@ fn hit_sphere(hitable: Hitable, r: Ray, ray_tmin: f32, ray_tmax: f32) -> HitReco
 
     let p = at(r,root);
     let normal = normalize((p - hitable.sphere.center) / hitable.sphere.radius);
-    var record = HitRecord(true,root,p,normal, hitable.material);
+    let uv = get_sphere_uv(normal);
+    var record = HitRecord(true,root,p,normal, hitable.material, uv.x, uv.y);
     record.normal = set_front_face(record, r);
     return record;
 
@@ -225,6 +229,10 @@ fn get_attenuation(tex: Texture, rec: HitRecord) -> vec3<f32> {
         case CHECKER: {
             return get_attentuation_checker(tex, rec);
         }
+        case IMAGE: {
+            return get_attenuation_image(rec);
+
+        }
         default: {
             return vec3(0.0,0.0,0.0);
         }
@@ -248,12 +256,27 @@ fn get_attentuation_checker(tex: Texture, rec: HitRecord) -> vec3<f32> {
     return tex.odd;
 }
 
+fn get_sphere_uv(p: vec3<f32>) -> vec2<f32> {
+    let theta = acos(-p.y);
+    let phi = atan2(-p.z, p.x) + PI;
+    let u = phi / (2*PI);
+    let v = theta / PI;
+    return vec2(u,v);
+}
+
+fn get_attenuation_image(rec: HitRecord) -> vec3<f32> {
+    let dims = textureDimensions(t_diffuse);
+    let x = clamp(u32(rec.u * f32(dims.x)), 0u, dims.x - 1u);
+    let y = clamp(u32(rec.v * f32(dims.y)), 0u, dims.y - 1u);
+    return textureLoad(t_diffuse, vec2<u32>(x, y), 0).xyz;
+}
+
 fn reflect(v: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     return v - 2.0 * dot(v, n) * n;
 }
 
 fn null_hit_record() -> HitRecord {
-    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), Material(null_texture(), 0));
+    return HitRecord(false, 0.0, vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0), Material(null_texture(), 0), 0.0, 0.0);
 }
 
 fn null_texture() -> Texture {
@@ -286,6 +309,8 @@ struct HitRecord {
     p: vec3<f32>,
     normal: vec3<f32>,
     material: Material,
+    u: f32,
+    v: f32
 }
 
 struct ScatterRecord {

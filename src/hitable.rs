@@ -71,15 +71,28 @@ impl Texture {
         }
     }
 
-    pub fn checker(inv_scale: f32, even: Vector3<f32>, odd: Vector3<f32>) -> Self {
+    pub fn checker(scale: f32, even: Vector3<f32>, odd: Vector3<f32>) -> Self {
         Self {
             albedo: Vector3::new(0.0, 0.0, 0.0),
             kind: 1, // CHECKER
-            inv_scale,
+            inv_scale: 1.0 / scale,
             _padding0: [0; 3],
             even,
             _padding1: 0,
             odd,
+            _padding2: 0,
+        }
+    }
+
+    pub fn image() -> Self {
+        Self {
+            albedo: Vector3::new(0.0, 0.0, 0.0),
+            kind: 2, // CHECKER
+            inv_scale: 0.0,
+            _padding0: [0; 3],
+            even: Vector3::new(0.0, 0.0, 0.0),
+            _padding1: 0,
+            odd: Vector3::new(0.0, 0.0, 0.0),
             _padding2: 0,
         }
     }

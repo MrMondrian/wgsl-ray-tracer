@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use image::GenericImageView;
 use winit::application::ApplicationHandler;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
@@ -40,6 +41,7 @@ struct GpuInfo<'a> {
     need_redraw: bool,
     #[allow(dead_code)]
     window: &'a Window,
+    diffuse_texture_view: wgpu::TextureView,
 }
 
 impl<'a> GpuInfo<'a> {
@@ -89,6 +91,66 @@ impl<'a> GpuInfo<'a> {
             .get_default_config(&adapter, size.width, size.height)
             .unwrap();
         surface.configure(&device, &config);
+
+        let diffuse_bytes = include_bytes!("../assets/red.jpg");
+        let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
+        let diffuse_rgba = diffuse_image.to_rgba8();
+
+        let dimensions = diffuse_image.dimensions();
+
+        let texture_size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            // All textures are stored as 3D, we represent our 2D texture
+            // by setting depth to 1.
+            depth_or_array_layers: 1,
+        };
+        let diffuse_texture = device.create_texture(
+            &wgpu::TextureDescriptor {
+                size: texture_size,
+                mip_level_count: 1, // We'll talk about this a little later
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                // Most images are stored using sRGB, so we need to reflect that here.
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                // TEXTURE_BINDING tells wgpu that we want to use this texture in shaders
+                // COPY_DST means that we want to copy data to this texture
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                label: Some("diffuse_texture"),
+                // This is the same as with the SurfaceConfig. It
+                // specifies what texture formats can be used to
+                // create TextureViews for this texture. The base
+                // texture format (Rgba8UnormSrgb in this case) is
+                // always supported. Note that using a different
+                // texture format is not supported on the WebGL2
+                // backend.
+                view_formats: &[],
+            }
+        );
+
+
+        queue.write_texture(
+            // Tells wgpu where to copy the pixel data
+            wgpu::TexelCopyTextureInfo {
+                texture: &diffuse_texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            // The actual pixel data
+            &diffuse_rgba,
+            // The layout of the texture
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * dimensions.0),
+                rows_per_image: Some(dimensions.1),
+            },
+            texture_size,
+        );
+
+        let diffuse_texture_view = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+
 
         let camera = Camera::new(config.width, config.height as f32, Vector3::<f32>::zeros(), Matrix4::<f32>::identity());
         let camera_buffer = device.create_buffer_init(
@@ -243,7 +305,7 @@ impl<'a> GpuInfo<'a> {
         });
         let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Output texture bind group layout (for compute shader)
+        // Output texture bind group layout (for compute shader) - combined with diffuse texture
         let output_texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -255,7 +317,17 @@ impl<'a> GpuInfo<'a> {
                         view_dimension: wgpu::TextureViewDimension::D2,
                     },
                     count: None,
-                }
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
             ],
             label: Some("output_texture_bind_group_layout"),
         });
@@ -266,7 +338,11 @@ impl<'a> GpuInfo<'a> {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&output_texture_view),
-                }
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+                },
             ],
             label: Some("output_texture_bind_group"),
         });
@@ -396,6 +472,7 @@ impl<'a> GpuInfo<'a> {
             blit_bind_group,
             need_redraw: true,
             window,
+            diffuse_texture_view,
         }
     }
 
@@ -497,7 +574,11 @@ impl<'a> GpuInfo<'a> {
                 wgpu::BindGroupEntry {
                     binding: 0,
                     resource: wgpu::BindingResource::TextureView(&self.output_texture_view),
-                }
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.diffuse_texture_view),
+                },
             ],
             label: Some("output_texture_bind_group"),
         });
@@ -698,7 +779,8 @@ fn run(hitable_list: Vec<Hitable>) {
 pub fn ray_tracer() {
 
     let sphere1 = Sphere::new(Vector3::new(0.0, 0.0, -1.2), 0.5);
-    let texture1 = Texture::solid(Vector3::new(0.8, 0.3, 0.3));
+    // let texture1 = Texture::solid(Vector3::new(0.8, 0.3, 0.3));
+    let texture1 = Texture::image();
     let material1 = Material::new(texture1, 0);
     let sphere2: Sphere = Sphere::new(Vector3::new(0.0, -100.5, -1.0), 100.0);
     let texture2 = Texture::checker(1.0, Vector3::new(1.0,1.0,1.0), Vector3::new(0.0,0.0,0.0));
