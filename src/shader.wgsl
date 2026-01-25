@@ -1,7 +1,17 @@
 #import lib::{
-    Ray, Hitable, HitRecord, ScatterRecord, Material, Texture,
-    max_f32, hit_object, null_hit_record,
-    LAMBERTIAN, METAL, SOLID_COLOR, CHECKER, IMAGE
+    Ray,
+    Hitable,
+    HitRecord,
+    ScatterRecord,
+    Material,
+    Texture,
+    max_f32,
+    hit_object, 
+    null_hit_record, 
+    scatter, 
+    sample_vec3, 
+    sample_square, 
+    mat_4_to_3
 }
 struct Camera {
     @location(0) aspect_ratio: f32,
@@ -25,7 +35,6 @@ struct Camera {
 @group(2) @binding(0) var<storage,read_write> prev_frame: array<vec4<f32>>;
 
 @group(3) @binding(0) var output_texture: texture_storage_2d<rgba8unorm, write>;
-@group(3) @binding(1) var t_diffuse: texture_2d<f32>;
 
 
 // Compute shader entry point
@@ -88,23 +97,6 @@ fn blit_fs(in: BlitVertexOutput) -> @location(0) vec4<f32> {
     return textureSample(blit_texture, blit_sampler, in.tex_coords);
 }
 
-fn sample_vec3(rng_seed: vec3<f32>) -> vec3<f32> {
-    let out = vec3<f32>(
-        random_vec3(rng_seed + vec3<f32>(0.0, 1.0, 2.0)),
-        random_vec3(rng_seed + vec3<f32>(3.0, 4.0, 5.0)),
-        random_vec3(rng_seed + vec3<f32>(6.0, 7.0, 8.0))
-    );
-    return out * 2.0 - 1.0;
-}
-
-fn sample_square(rng_seed: vec3<f32>) -> vec2<f32> {
-    let sample = vec2<f32>(
-        random_vec3(rng_seed + vec3<f32>(0.0, 1.0, 2.0)),
-        random_vec3(rng_seed + vec3<f32>(3.0, 4.0, 5.0))
-    );
-    return sample - 0.5;
-}
-
 
 fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     var hits = 0u;
@@ -150,115 +142,4 @@ fn get_hit_record(r: Ray, t_min: f32, t_max: f32) -> HitRecord {
         }
     }
     return record;
-}
-
-
-fn random_vec3_on_hemisphere(normal: vec3<f32>, rng_seed: vec3<f32>) -> vec3<f32> {
-    let p = normal + sample_vec3(rng_seed);
-    var normed = normalize(p);
-    if dot(normed, normal) < 0.0 {
-        normed = -normed;
-    }
-    return normed;
-}
-
-
-fn random_vec2(v: vec2<f32>) -> f32 { return float_construct(hash_vec2(vec2<u32>(bitcast<u32>(v.x), bitcast<u32>(v.y)))); }
-fn random_vec3(v: vec3<f32>) -> f32 { return float_construct(hash_vec3(vec3<u32>(bitcast<u32>(v.x), bitcast<u32>(v.y), bitcast<u32>(v.z)))); }
-fn hash(x: u32) -> u32 {
-    var result = x;
-    result += (result << 10u);
-    result ^= (result >>  6u);
-    result += (result <<  3u);
-    result ^= (result >> 11u);
-    result += (result << 15u);
-    return result;
-}
-
-// Compound versions of the hashing algorithm
-fn hash_vec2(v: vec2<u32>) -> u32 { return hash(v.x ^ hash(v.y)); }
-fn hash_vec3(v: vec3<u32>) -> u32 { return hash((v.x ^ hash(v.y)) ^ hash(v.z)); }
-
-// Construct a float with half-open range [0:1] using low 23 bits.
-fn float_construct(m: u32) -> f32 {
-    let ieee_mantissa: u32 = 0x007FFFFFu; // binary32 mantissa bitmask
-    let ieee_one: u32      = 0x3F800000u; // 1.0 in IEEE binary32
-
-    let result = (m & ieee_mantissa) | ieee_one;  // Keep only mantissa bits and add exponent
-
-    return bitcast<f32>(result) - 1.0;    // Range [0:1]
-}
-
-fn mat_4_to_3(m: mat4x4<f32>) -> mat3x3<f32> {
-    return mat3x3<f32>(
-        vec3<f32>(m[0].xyz),
-        vec3<f32>(m[1].xyz),
-        vec3<f32>(m[2].xyz)
-    );
-}
-
-fn get_attenuation_image(rec: HitRecord) -> vec3<f32> {
-    let dims = textureDimensions(t_diffuse);
-    let x = clamp(u32(rec.u * f32(dims.x)), 0u, dims.x - 1u);
-    let y = clamp(u32(rec.v * f32(dims.y)), 0u, dims.y - 1u);
-    return textureLoad(t_diffuse, vec2<u32>(x, y), 0).xyz;
-}
-
-fn get_attenuation(tex: Texture, rec: HitRecord) -> vec3<f32> { 
-    switch tex.kind { 
-        case SOLID_COLOR: {
-            return get_attenuation_solid(tex);
-        }
-        case CHECKER: {
-            return get_attentuation_checker(tex, rec);
-        }
-        case IMAGE: {
-            return get_attenuation_image(rec);
-
-        }
-        default: {
-            return vec3(0.0,0.0,0.0);
-        }
-    }
-}
-
-fn scatter(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
-    if material.kind == LAMBERTIAN {
-        return scatter_lambertian(material, r, rec, seed);
-    }
-    if material.kind == METAL {
-        return scatter_metal(material, r, rec, seed);
-    }
-    return ScatterRecord(false, vec3(0.0, 0.0, 0.0), Ray(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0)));
-}
-
-fn scatter_lambertian(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
-    let scatter_ray = random_vec3_on_hemisphere(rec.normal, seed);
-    let scattered = Ray(rec.p, scatter_ray);
-    let attenuation = get_attenuation(material.tex, rec);
-    return ScatterRecord(true, attenuation, scattered);
-}
-
-fn scatter_metal(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
-    let reflected = reflect(normalize(r.direction), rec.normal);
-    let scattered = Ray(rec.p, reflected);
-    let attenuation = get_attenuation(material.tex, rec);
-    return ScatterRecord(true, attenuation, scattered);
-}
-
-fn get_attenuation_solid(tex: Texture) -> vec3<f32> {
-    return tex.albedo;
-}
-
-fn get_attentuation_checker(tex: Texture, rec: HitRecord) -> vec3<f32> {
-    let x_int = floor(tex.inv_scale * rec.p.x);
-    let y_int = floor(tex.inv_scale * rec.p.y);
-    let z_int = floor(tex.inv_scale * rec.p.z);
-
-    let is_even = (x_int + y_int + z_int) % 2 == 0;
-    
-    if is_even {
-      return tex.even;
-    }
-    return tex.odd;
 }
