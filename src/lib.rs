@@ -1,5 +1,9 @@
 use std::borrow::Cow;
+
+#[allow(unused_variables, dead_code)]
 use image::GenericImageView;
+use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor};
+use wgpu::util::DeviceExt;
 use winit::application::ApplicationHandler;
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::{
@@ -7,16 +11,37 @@ use winit::{
     event_loop::{ActiveEventLoop, EventLoop},
     window::{Window, WindowAttributes, WindowId},
 };
-use wgpu::util::DeviceExt;
 pub mod camera;
 use crate::camera::Camera;
 pub mod hitable;
 use crate::hitable::*;
-use nalgebra::base::{Vector3,Vector4, Matrix4};
+use log::*;
+use nalgebra::base::{Matrix4, Vector3, Vector4};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
-use log::*;
 
+fn init_composer() -> Composer {
+    let mut composer = Composer::default();
+
+    let mut load_composable = |source: &str, file_path: &str| {
+        match composer.add_composable_module(ComposableModuleDescriptor {
+            source,
+            file_path,
+            ..Default::default()
+        }) {
+            Ok(_module) => {
+                // println!("{} -> {:#?}", module.name, module)
+            }
+            Err(e) => {
+                println!("? -> {e:#?}")
+            }
+        }
+    };
+
+    load_composable(include_str!("lib.wgsl"), "lib.wgsl");
+
+    composer
+}
 
 struct GpuInfo<'a> {
     surface: wgpu::Surface<'a>,
@@ -67,8 +92,6 @@ impl<'a> GpuInfo<'a> {
             .await
             .expect("Failed to find an appropriate adapter");
 
-        
-        
         info!("Requesting device");
         // Create the logical device and command queue
         let (device, queue) = adapter
@@ -105,29 +128,26 @@ impl<'a> GpuInfo<'a> {
             // by setting depth to 1.
             depth_or_array_layers: 1,
         };
-        let diffuse_texture = device.create_texture(
-            &wgpu::TextureDescriptor {
-                size: texture_size,
-                mip_level_count: 1, // We'll talk about this a little later
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                // Most images are stored using sRGB, so we need to reflect that here.
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                // TEXTURE_BINDING tells wgpu that we want to use this texture in shaders
-                // COPY_DST means that we want to copy data to this texture
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                label: Some("diffuse_texture"),
-                // This is the same as with the SurfaceConfig. It
-                // specifies what texture formats can be used to
-                // create TextureViews for this texture. The base
-                // texture format (Rgba8UnormSrgb in this case) is
-                // always supported. Note that using a different
-                // texture format is not supported on the WebGL2
-                // backend.
-                view_formats: &[],
-            }
-        );
-
+        let diffuse_texture = device.create_texture(&wgpu::TextureDescriptor {
+            size: texture_size,
+            mip_level_count: 1, // We'll talk about this a little later
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            // Most images are stored using sRGB, so we need to reflect that here.
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            // TEXTURE_BINDING tells wgpu that we want to use this texture in shaders
+            // COPY_DST means that we want to copy data to this texture
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            label: Some("diffuse_texture"),
+            // This is the same as with the SurfaceConfig. It
+            // specifies what texture formats can be used to
+            // create TextureViews for this texture. The base
+            // texture format (Rgba8UnormSrgb in this case) is
+            // always supported. Note that using a different
+            // texture format is not supported on the WebGL2
+            // backend.
+            view_formats: &[],
+        });
 
         queue.write_texture(
             // Tells wgpu where to copy the pixel data
@@ -148,21 +168,23 @@ impl<'a> GpuInfo<'a> {
             texture_size,
         );
 
-        let diffuse_texture_view = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let diffuse_texture_view =
+            diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-
-
-        let camera = Camera::new(config.width, config.height as f32, Vector3::<f32>::zeros(), Matrix4::<f32>::identity());
-        let camera_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Camera Buffer"),
-                contents: bytemuck::cast_slice(&[camera]),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            }
+        let camera = Camera::new(
+            config.width,
+            config.height as f32,
+            Vector3::<f32>::zeros(),
+            Matrix4::<f32>::identity(),
         );
-        let camera_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[camera]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+        let camera_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
@@ -171,38 +193,32 @@ impl<'a> GpuInfo<'a> {
                         min_binding_size: None,
                     },
                     count: None,
-                }
-            ],
-            label: Some("camera_bind_group_layout"),
-        });
+                }],
+                label: Some("camera_bind_group_layout"),
+            });
 
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &camera_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &camera_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                }
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &camera_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }],
             label: Some("camera_bind_group"),
         });
 
-        
-        let hitable_list_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Hitable List Buffer"),
-                contents: bytemuck::cast_slice(hitable_list.as_slice()),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            }
-        );
+        let hitable_list_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Hitable List Buffer"),
+            contents: bytemuck::cast_slice(hitable_list.as_slice()),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
-        let hitable_list_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let hitable_list_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
@@ -211,48 +227,45 @@ impl<'a> GpuInfo<'a> {
                         min_binding_size: None,
                     },
                     count: None,
-                }
-            ],
-            label: Some("hitable_list_bind_group_layout"),
-        });
+                }],
+                label: Some("hitable_list_bind_group_layout"),
+            });
 
         let hitable_list_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &hitable_list_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &hitable_list_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                }
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &hitable_list_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }],
             label: Some("hitable_list_bind_group"),
         });
-
 
         let monitor_size = window.current_monitor();
         let prev_pixels = match monitor_size {
             Some(monitor) => {
                 let physical_size = monitor.size();
-                vec![Vector4::<f32>::zeros(); physical_size.width as usize * physical_size.height as usize]
+                vec![
+                    Vector4::<f32>::zeros();
+                    physical_size.width as usize * physical_size.height as usize
+                ]
             }
             None => {
                 vec![Vector4::<f32>::zeros(); size.width as usize * size.height as usize]
             }
         };
-        let prev_pixels_buffer = device.create_buffer_init(
-            &wgpu::util::BufferInitDescriptor {
-                label: Some("Previous Pixels Buffer"),
-                contents: bytemuck::cast_slice(prev_pixels.as_slice()),
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-            }
-        );
+        let prev_pixels_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Previous Pixels Buffer"),
+            contents: bytemuck::cast_slice(prev_pixels.as_slice()),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
 
-        let prev_pixels_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
+        let prev_pixels_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::COMPUTE,
                     ty: wgpu::BindingType::Buffer {
@@ -261,31 +274,34 @@ impl<'a> GpuInfo<'a> {
                         min_binding_size: None,
                     },
                     count: None,
-                }
-            ],
-            label: Some("prev_pixels_bind_group_layout"),
-        });
+                }],
+                label: Some("prev_pixels_bind_group_layout"),
+            });
 
         let prev_pixels_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &prev_pixels_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &prev_pixels_buffer,
-                        offset: 0,
-                        size: None,
-                    }),
-                }
-            ],
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &prev_pixels_buffer,
+                    offset: 0,
+                    size: None,
+                }),
+            }],
             label: Some("prev_pixels_bind_group"),
-        });        
-
-
+        });
+        let module = init_composer()
+            .make_naga_module(NagaModuleDescriptor {
+                source: include_str!("shader.wgsl"),
+                file_path: "shader.wgsl",
+                shader_defs: [("VERTEX_UVS".to_owned(), Default::default())].into(),
+                ..Default::default()
+            })
+            .unwrap();
         // Load the shaders from disk
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
-            source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
+            source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
         });
 
         // Create output texture for compute shader
@@ -303,34 +319,36 @@ impl<'a> GpuInfo<'a> {
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        let output_texture_view = output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let output_texture_view =
+            output_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         // Output texture bind group layout (for compute shader) - combined with diffuse texture
-        let output_texture_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::StorageTexture {
-                        access: wgpu::StorageTextureAccess::WriteOnly,
-                        format: wgpu::TextureFormat::Rgba8Unorm,
-                        view_dimension: wgpu::TextureViewDimension::D2,
+        let output_texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::StorageTexture {
+                            access: wgpu::StorageTextureAccess::WriteOnly,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::COMPUTE,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-            ],
-            label: Some("output_texture_bind_group_layout"),
-        });
+                ],
+                label: Some("output_texture_bind_group_layout"),
+            });
 
         let output_texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &output_texture_bind_group_layout,
@@ -348,16 +366,17 @@ impl<'a> GpuInfo<'a> {
         });
 
         // Create compute pipeline
-        let compute_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Compute Pipeline Layout"),
-            bind_group_layouts: &[
-                &camera_bind_group_layout,
-                &hitable_list_bind_group_layout,
-                &prev_pixels_bind_group_layout,
-                &output_texture_bind_group_layout,
-            ],
-            immediate_size: 0,
-        });
+        let compute_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Compute Pipeline Layout"),
+                bind_group_layouts: &[
+                    &camera_bind_group_layout,
+                    &hitable_list_bind_group_layout,
+                    &prev_pixels_bind_group_layout,
+                    &output_texture_bind_group_layout,
+                ],
+                immediate_size: 0,
+            });
 
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Compute Pipeline"),
@@ -381,27 +400,28 @@ impl<'a> GpuInfo<'a> {
         });
 
         // Blit bind group layout
-        let blit_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
+        let blit_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
                     },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
-            label: Some("blit_bind_group_layout"),
-        });
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("blit_bind_group_layout"),
+            });
 
         let blit_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &blit_bind_group_layout,
@@ -481,14 +501,16 @@ impl<'a> GpuInfo<'a> {
             return Ok(());
         }
 
-        let frame = self.surface
+        let frame = self
+            .surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let mut encoder =
-            self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Render Encoder"),
             });
 
@@ -537,7 +559,8 @@ impl<'a> GpuInfo<'a> {
         self.queue.submit(Some(buffer));
         frame.present();
         self.camera.iteration += 1;
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
         self.window.request_redraw();
         Ok(())
     }
@@ -547,8 +570,14 @@ impl<'a> GpuInfo<'a> {
         self.config.width = new_size.width;
         self.config.height = new_size.height;
         self.surface.configure(&self.device, &self.config);
-        self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center, self.camera.rotation);
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
+        self.camera = Camera::new(
+            self.config.width,
+            self.config.height as f32,
+            self.camera.center,
+            self.camera.rotation,
+        );
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
 
         // Recreate output texture at new size
         self.output_texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -565,23 +594,26 @@ impl<'a> GpuInfo<'a> {
             usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         });
-        self.output_texture_view = self.output_texture.create_view(&wgpu::TextureViewDescriptor::default());
+        self.output_texture_view = self
+            .output_texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         // Recreate bind groups that reference the texture
-        self.output_texture_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &self.output_texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.output_texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.diffuse_texture_view),
-                },
-            ],
-            label: Some("output_texture_bind_group"),
-        });
+        self.output_texture_bind_group =
+            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.output_texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.output_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&self.diffuse_texture_view),
+                    },
+                ],
+                label: Some("output_texture_bind_group"),
+            });
 
         self.blit_bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &self.blit_bind_group_layout,
@@ -639,22 +671,28 @@ impl<'a> GpuInfo<'a> {
                 self.camera.center += move_global;
             }
             PhysicalKey::Code(KeyCode::KeyJ) => {
-                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::y_axis(), 0.1);
+                self.camera.rotation =
+                    self.camera.rotation * Matrix4::from_axis_angle(&Vector3::y_axis(), 0.1);
             }
             PhysicalKey::Code(KeyCode::KeyL) => {
-                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::y_axis(), -0.1);
+                self.camera.rotation =
+                    self.camera.rotation * Matrix4::from_axis_angle(&Vector3::y_axis(), -0.1);
             }
             PhysicalKey::Code(KeyCode::KeyI) => {
-                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::x_axis(), 0.1);
+                self.camera.rotation =
+                    self.camera.rotation * Matrix4::from_axis_angle(&Vector3::x_axis(), 0.1);
             }
             PhysicalKey::Code(KeyCode::KeyK) => {
-                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::x_axis(), -0.1);
+                self.camera.rotation =
+                    self.camera.rotation * Matrix4::from_axis_angle(&Vector3::x_axis(), -0.1);
             }
             PhysicalKey::Code(KeyCode::KeyU) => {
-                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::z_axis(), 0.1);
+                self.camera.rotation =
+                    self.camera.rotation * Matrix4::from_axis_angle(&Vector3::z_axis(), 0.1);
             }
             PhysicalKey::Code(KeyCode::KeyO) => {
-                self.camera.rotation = self.camera.rotation * Matrix4::from_axis_angle(&Vector3::z_axis(), -0.1);
+                self.camera.rotation =
+                    self.camera.rotation * Matrix4::from_axis_angle(&Vector3::z_axis(), -0.1);
             }
             PhysicalKey::Code(KeyCode::Space) => {
                 self.camera.center = Vector3::zeros();
@@ -662,13 +700,17 @@ impl<'a> GpuInfo<'a> {
             }
             _ => {}
         }
-        self.camera = Camera::new(self.config.width, self.config.height as f32, self.camera.center, self.camera.rotation);
-        self.queue.write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
+        self.camera = Camera::new(
+            self.config.width,
+            self.config.height as f32,
+            self.camera.center,
+            self.camera.rotation,
+        );
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
         self.need_redraw = true;
         self.window.request_redraw();
-    }   
-
- 
+    }
 }
 
 struct App<'a> {
@@ -744,7 +786,12 @@ impl ApplicationHandler for App<'_> {
         self.gpu_info = Some(gpu_info);
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _window_id: WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        _window_id: WindowId,
+        event: WindowEvent,
+    ) {
         let Some(gpu_info) = self.gpu_info.as_mut() else {
             return;
         };
@@ -775,15 +822,18 @@ fn run(hitable_list: Vec<Hitable>) {
     event_loop.run_app(&mut app).unwrap();
 }
 
-#[cfg_attr(target_arch="wasm32", wasm_bindgen(start))]
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub fn ray_tracer() {
-
     let sphere1 = Sphere::new(Vector3::new(0.0, 0.0, -1.2), 0.5);
     // let texture1 = Texture::solid(Vector3::new(0.8, 0.3, 0.3));
     let texture1 = Texture::image();
     let material1 = Material::new(texture1, 0);
     let sphere2: Sphere = Sphere::new(Vector3::new(0.0, -100.5, -1.0), 100.0);
-    let texture2 = Texture::checker(1.0, Vector3::new(1.0,1.0,1.0), Vector3::new(0.0,0.0,0.0));
+    let texture2 = Texture::checker(
+        1.0,
+        Vector3::new(1.0, 1.0, 1.0),
+        Vector3::new(0.0, 0.0, 0.0),
+    );
     let material2 = Material::new(texture2, 0);
     let sphere3: Sphere = Sphere::new(Vector3::new(-1.0, 0.0, -1.0), 0.5);
     let texture3 = Texture::solid(Vector3::new(0.8, 0.6, 0.2));
@@ -791,7 +841,7 @@ pub fn ray_tracer() {
     let sphere4: Sphere = Sphere::new(Vector3::new(1.0, 0.0, -1.0), 0.5);
     let texture4 = Texture::solid(Vector3::new(0.8, 0.8, 0.8));
     let material4 = Material::new(texture4, 1);
-    
+
     let hitable1 = Hitable::new(0, sphere1, material1);
     let hitable2 = Hitable::new(0, sphere2, material2);
     let hitable3 = Hitable::new(0, sphere3, material3);
