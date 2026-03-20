@@ -1,4 +1,7 @@
 #define_import_path binds
+#import lib::{
+  Hitable
+}
 struct Camera {
     @location(0) aspect_ratio: f32,
     @location(1) image_width: u32,
