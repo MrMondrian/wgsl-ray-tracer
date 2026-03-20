@@ -1,5 +1,9 @@
 use nalgebra::{Vector3, Matrix4};
 
+/// Camera parameters uploaded to the GPU as a uniform buffer.
+///
+/// The layout must match the WGSL `Camera` struct exactly, including all
+/// padding fields required for 16-byte alignment of vec3 members.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Camera {
@@ -11,25 +15,32 @@ pub struct Camera {
     pub center: Vector3<f32>,
     _pad2: f32,  // Padding to align pixel00_loc to 16 bytes
 
+    /// World-space position of the top-left pixel center.
     pub pixel00_loc: Vector3<f32>,
     _pad3: f32,  // Padding to align pixel_delta_u to 16 bytes
 
+    /// World-space step per pixel along the horizontal axis.
     pub pixel_delta_u: Vector3<f32>,
     _pad4: f32,  // Padding to align pixel_delta_v to 16 bytes
 
+    /// World-space step per pixel along the vertical axis.
     pub pixel_delta_v: Vector3<f32>,
     pub samples_per_pixel: u32,
 
     pub pixels_sample_scale: f32,
     pub max_depth: u32, // if this needs to be > 100 edit the shader
+    /// Accumulation frame counter — incremented each render pass.
     pub iteration: u32,
     _pad6: f32,  // Padding to align Camera to 16 bytes
+    /// Camera rotation matrix applied to ray directions in the shader.
     pub rotation: Matrix4<f32>,
 }
 
 impl Camera {
-
-
+    /// Constructs a camera from viewport dimensions, world-space position, and rotation.
+    ///
+    /// Computes the pixel grid geometry (pixel00_loc, pixel_delta_u/v) from the
+    /// image dimensions and a fixed focal length of 1.0.
     pub fn new(image_width: u32, image_height: f32, center: Vector3<f32>, rotation: Matrix4<f32>) -> Self {
         let aspect_ratio = image_width as f32 / image_height;
         let focal_length: f32 = 1.0;

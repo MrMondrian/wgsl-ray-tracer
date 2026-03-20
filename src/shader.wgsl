@@ -98,6 +98,8 @@ fn blit_fs(in: BlitVertexOutput) -> @location(0) vec4<f32> {
 }
 
 
+// Path-traces a single ray up to camera.max_depth bounces.
+// Accumulates per-bounce attenuation and applies the sky gradient for the terminal ray.
 fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     var hits = 0u;
     var attenuations = array<vec3<f32>, 100>();
@@ -130,6 +132,8 @@ fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     return vec4<f32>(color, 1.0);
 }
 
+// Finds the closest hit across all objects in hitabble_list in the range [t_min, t_max].
+// Returns a null HitRecord if nothing is hit.
 fn get_hit_record(r: Ray, t_min: f32, t_max: f32) -> HitRecord {
     var closest_so_far = max_f32;
     var record = null_hit_record();

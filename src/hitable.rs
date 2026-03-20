@@ -1,5 +1,9 @@
 use nalgebra::Vector3;
 
+/// A scene object that can be hit by a ray.
+///
+/// Currently the only supported kind is `0` (sphere). The `kind` field
+/// mirrors the WGSL `SPHERE` constant and drives dispatch in the shader.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Hitable {
@@ -9,8 +13,8 @@ pub struct Hitable {
     material: Material,
 }
 
-
 impl Hitable {
+    /// Creates a new hitable with the given object kind, sphere geometry, and material.
     pub fn new(kind: u32, sphere: Sphere, material: Material) -> Self {
         Self {
             kind,
@@ -24,6 +28,7 @@ impl Hitable {
 unsafe impl bytemuck::Pod for Hitable {}
 unsafe impl bytemuck::Zeroable for Hitable {}
 
+/// Sphere geometry: center position and radius.
 #[repr(C)]
 #[derive(Copy, Clone, Debug,)]
 pub struct Sphere {
@@ -32,6 +37,7 @@ pub struct Sphere {
 }
 
 impl Sphere {
+    /// Creates a sphere with the given center and radius.
     pub fn new(center: Vector3<f32>, radius: f32) -> Self {
         Self {
             center,
@@ -44,6 +50,10 @@ unsafe impl bytemuck::Pod for Sphere {}
 unsafe impl bytemuck::Zeroable for Sphere {}
 
 
+/// Texture descriptor uploaded to the GPU.
+///
+/// `kind` selects the texture mode: `0` = solid color, `1` = checker, `2` = image.
+/// Unused fields are zeroed for their respective kinds.
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Texture {
@@ -58,6 +68,7 @@ pub struct Texture {
 }
 
 impl Texture {
+    /// Creates a solid-color texture with the given albedo.
     pub fn solid(albedo: Vector3<f32>) -> Self {
         Self {
             albedo,
@@ -71,6 +82,8 @@ impl Texture {
         }
     }
 
+    /// Creates a 3D checker texture that alternates between `even` and `odd` colors.
+    /// `scale` controls the size of the checker cells.
     pub fn checker(scale: f32, even: Vector3<f32>, odd: Vector3<f32>) -> Self {
         Self {
             albedo: Vector3::new(0.0, 0.0, 0.0),
@@ -84,6 +97,7 @@ impl Texture {
         }
     }
 
+    /// Creates an image texture that samples from the bound diffuse texture (`t_diffuse`).
     pub fn image() -> Self {
         Self {
             albedo: Vector3::new(0.0, 0.0, 0.0),
@@ -101,6 +115,9 @@ impl Texture {
 unsafe impl bytemuck::Pod for Texture {}
 unsafe impl bytemuck::Zeroable for Texture {}
 
+/// Material descriptor: a texture plus a scatter model kind.
+///
+/// `kind` selects the BRDF: `0` = Lambertian diffuse, `1` = metal (specular reflection).
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct Material {
@@ -110,6 +127,7 @@ pub struct Material {
 }
 
 impl Material {
+    /// Creates a material with the given texture and scatter kind.
     pub fn new(tex: Texture, kind: u32) -> Self {
         Self {
             tex,
