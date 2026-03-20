@@ -135,10 +135,14 @@ fn null_texture() -> Texture {
     return Texture(vec3(0.0,0.0,0.0),0, 0.0, vec3(0.0,0.0,0.0), vec3(0.0,0.0,0.0));
 }
 // Samples the bound diffuse texture at the hit's (u, v) coordinates.
-fn get_attenuation_image(rec: HitRecord) -> vec3<f32> {
+fn get_attenuation_image_hr(rec: HitRecord) -> vec3<f32> {
+    return get_attenuation_image(rec.u, rec.v);
+}
+
+fn get_attenuation_image(u: f32, v: f32) -> vec3<f32> {
     let dims = textureDimensions(t_diffuse);
-    let x = clamp(u32(rec.u * f32(dims.x)), 0u, dims.x - 1u);
-    let y = clamp(u32(rec.v * f32(dims.y)), 0u, dims.y - 1u);
+    let x = clamp(u32(u * f32(dims.x)), 0u, dims.x - 1u);
+    let y = clamp(u32(v * f32(dims.y)), 0u, dims.y - 1u);
     return textureLoad(t_diffuse, vec2<u32>(x, y), 0).xyz;
 }
 
@@ -153,7 +157,7 @@ fn get_attenuation(tex: Texture, rec: HitRecord) -> vec3<f32> {
             return get_attentuation_checker(tex, rec);
         }
         case IMAGE: {
-            return get_attenuation_image(rec);
+            return get_attenuation_image_hr(rec);
 
         }
         default: {

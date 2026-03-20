@@ -1,5 +1,11 @@
 use std::borrow::Cow;
 
+#[derive(Clone, Copy)]
+pub enum Shader {
+    Cartesian,
+    Spherical,
+}
+
 #[allow(unused_variables, dead_code)]
 use image::GenericImageView;
 use naga_oil::compose::{ComposableModuleDescriptor, Composer, NagaModuleDescriptor};
@@ -84,7 +90,7 @@ impl<'a> GpuInfo<'a> {
     /// Creates the instance, surface, adapter, device, and queue, then builds
     /// the compute pipeline (ray tracing) and the blit render pipeline (fullscreen
     /// copy to swapchain). Also uploads the hitable list and camera to GPU buffers.
-    async fn new(window: &'a Window, hitable_list: Vec<Hitable>) -> GpuInfo<'a> {
+    async fn new(window: &'a Window, hitable_list: Vec<Hitable>, shader: Shader) -> GpuInfo<'a> {
         info!("Initializing GPU");
         let mut size = window.inner_size();
         size.width = size.width.max(1);
@@ -304,16 +310,20 @@ impl<'a> GpuInfo<'a> {
             }],
             label: Some("prev_pixels_bind_group"),
         });
+        let (wgsl_source, wgsl_path) = match shader {
+            Shader::Cartesian => (include_str!("cartesian.wgsl"), "cartesian.wgsl"),
+            Shader::Spherical => (include_str!("spherical.wgsl"), "spherical.wgsl"),
+        };
         let module = init_composer()
             .make_naga_module(NagaModuleDescriptor {
-                source: include_str!("cartesian.wgsl"),
-                file_path: "cartesian.wgsl",
+                source: wgsl_source,
+                file_path: wgsl_path,
                 shader_defs: [("VERTEX_UVS".to_owned(), Default::default())].into(),
                 ..Default::default()
             })
             .unwrap();
         // Load the shaders from disk
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Naga(Cow::Owned(module)),
         });
@@ -395,7 +405,7 @@ impl<'a> GpuInfo<'a> {
         let compute_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("Compute Pipeline"),
             layout: Some(&compute_pipeline_layout),
-            module: &shader,
+            module: &shader_module,
             entry_point: Some("cs_main"),
             compilation_options: Default::default(),
             cache: None,
@@ -466,13 +476,13 @@ impl<'a> GpuInfo<'a> {
             label: Some("Blit Pipeline"),
             layout: Some(&blit_pipeline_layout),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: &shader_module,
                 entry_point: Some("blit_vs"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
-                module: &shader,
+                module: &shader_module,
                 entry_point: Some("blit_fs"),
                 compilation_options: Default::default(),
                 targets: &[Some(swapchain_format.into())],
@@ -745,6 +755,7 @@ impl<'a> GpuInfo<'a> {
 /// address remains stable for the lifetime of `GpuInfo`.
 struct App<'a> {
     hitable_list: Vec<Hitable>,
+    shader: Shader,
     gpu_info: Option<GpuInfo<'a>>,
     window: Option<Box<Window>>,
 }
@@ -752,9 +763,10 @@ struct App<'a> {
 impl App<'_> {
     /// Creates the application with the given scene objects. GPU initialization
     /// is deferred until the first `resumed` event from the event loop.
-    fn new(hitable_list: Vec<Hitable>) -> Self {
+    fn new(hitable_list: Vec<Hitable>, shader: Shader) -> Self {
         Self {
             hitable_list,
+            shader,
             gpu_info: None,
             window: None,
         }
@@ -812,7 +824,7 @@ impl ApplicationHandler for App<'_> {
         // SAFETY: The window is stored in a Box which keeps its address stable.
         // We store the Box in self.window and ensure it outlives gpu_info.
         let window_ref: &'static Window = unsafe { &*(&*window as *const Window) };
-        let gpu_info = pollster::block_on(GpuInfo::new(window_ref, hitable_list));
+        let gpu_info = pollster::block_on(GpuInfo::new(window_ref, hitable_list, self.shader));
 
         self.window = Some(window);
         self.gpu_info = Some(gpu_info);
@@ -848,10 +860,10 @@ impl ApplicationHandler for App<'_> {
 }
 
 /// Starts the winit event loop and runs the application until the window is closed.
-fn run(hitable_list: Vec<Hitable>) {
+fn run(hitable_list: Vec<Hitable>, shader: Shader) {
     info!("Running");
     let event_loop = EventLoop::new().unwrap();
-    let mut app = App::new(hitable_list);
+    let mut app = App::new(hitable_list, shader);
     event_loop.run_app(&mut app).unwrap();
 }
 
@@ -860,7 +872,7 @@ fn run(hitable_list: Vec<Hitable>) {
 /// Builds the scene (four spheres with different materials/textures), initializes
 /// logging, and starts the render loop via [`run`].
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
-pub fn ray_tracer() {
+pub fn ray_tracer(shader: Shader) {
     let sphere1 = Sphere::new(Vector3::new(0.0, 0.0, -1.2), 0.5);
     // let texture1 = Texture::solid(Vector3::new(0.8, 0.3, 0.3));
     let texture1 = Texture::image();
@@ -889,11 +901,11 @@ pub fn ray_tracer() {
     #[cfg(target_arch = "wasm32")]
     {
         console_log::init().expect("could not initialize logger");
-        run(hitable_list);
+        run(hitable_list, shader);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         env_logger::init();
-        run(hitable_list);
+        run(hitable_list, shader);
     }
 }
