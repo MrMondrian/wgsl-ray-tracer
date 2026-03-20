@@ -13,6 +13,9 @@
     sample_square, 
     mat_4_to_3
 }
+
+#import binds;
+
 struct Camera {
     @location(0) aspect_ratio: f32,
     @location(1) image_width: u32,
