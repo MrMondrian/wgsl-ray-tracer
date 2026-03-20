@@ -22,7 +22,7 @@ use wasm_bindgen::prelude::*;
 
 /// Creates a naga_oil [`Composer`] pre-loaded with `lib.wgsl` as a composable module.
 ///
-/// `shader.wgsl` can then `#import` from `lib` to share struct definitions and helpers.
+/// `cartesian.wgsl` can then `#import` from `lib` to share struct definitions and helpers.
 fn init_composer() -> Composer {
     let mut composer = Composer::default();
 
@@ -304,8 +304,8 @@ impl<'a> GpuInfo<'a> {
         });
         let module = init_composer()
             .make_naga_module(NagaModuleDescriptor {
-                source: include_str!("shader.wgsl"),
-                file_path: "shader.wgsl",
+                source: include_str!("cartesian.wgsl"),
+                file_path: "cartesian.wgsl",
                 shader_defs: [("VERTEX_UVS".to_owned(), Default::default())].into(),
                 ..Default::default()
             })
