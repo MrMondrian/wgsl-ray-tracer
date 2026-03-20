@@ -20,6 +20,9 @@ use nalgebra::base::{Matrix4, Vector3, Vector4};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
 
+/// Creates a naga_oil [`Composer`] pre-loaded with `lib.wgsl` as a composable module.
+///
+/// `shader.wgsl` can then `#import` from `lib` to share struct definitions and helpers.
 fn init_composer() -> Composer {
     let mut composer = Composer::default();
 
@@ -43,6 +46,10 @@ fn init_composer() -> Composer {
     composer
 }
 
+/// All GPU-side state for the ray tracer: pipelines, buffers, textures, and bind groups.
+///
+/// Owns the wgpu surface/device/queue and every resource needed for one render frame.
+/// The lifetime `'a` is tied to the [`Window`] reference stored inside.
 struct GpuInfo<'a> {
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
@@ -70,6 +77,11 @@ struct GpuInfo<'a> {
 }
 
 impl<'a> GpuInfo<'a> {
+    /// Initializes the full wgpu pipeline for the ray tracer.
+    ///
+    /// Creates the instance, surface, adapter, device, and queue, then builds
+    /// the compute pipeline (ray tracing) and the blit render pipeline (fullscreen
+    /// copy to swapchain). Also uploads the hitable list and camera to GPU buffers.
     async fn new(window: &'a Window, hitable_list: Vec<Hitable>) -> GpuInfo<'a> {
         info!("Initializing GPU");
         let mut size = window.inner_size();
@@ -496,6 +508,10 @@ impl<'a> GpuInfo<'a> {
         }
     }
 
+    /// Renders one frame: runs the compute ray-tracing pass then blits the result to screen.
+    ///
+    /// Stops accumulating after 50 iterations. Each call increments `camera.iteration`
+    /// and writes the updated camera uniform back to the GPU buffer.
     fn render(&mut self) -> Result<(), wgpu::SurfaceError> {
         if self.camera.iteration > 50 {
             return Ok(());
@@ -565,6 +581,8 @@ impl<'a> GpuInfo<'a> {
         Ok(())
     }
 
+    /// Handles window resize: reconfigures the surface and recreates the output texture
+    /// and its bind groups at the new resolution. Also resets the camera geometry.
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         self.size = new_size;
         self.config.width = new_size.width;
@@ -631,6 +649,11 @@ impl<'a> GpuInfo<'a> {
         });
     }
 
+    /// Handles keyboard input to move and rotate the camera.
+    ///
+    /// WASD/QE translate along the camera's local axes. IJKL/UO rotate around
+    /// local X/Y/Z axes. Space resets the camera to the origin.
+    /// After any movement the camera uniform is re-uploaded and a redraw is requested.
     fn handle_key(&mut self, event: &KeyEvent) {
         let speed = 0.1;
         let rotation3x3 = self.camera.rotation.fixed_view::<3, 3>(0, 0).clone();
@@ -713,6 +736,11 @@ impl<'a> GpuInfo<'a> {
     }
 }
 
+/// Top-level winit application state.
+///
+/// Holds the scene (`hitable_list`) before the window is created, then transfers
+/// ownership to [`GpuInfo`] on `resumed`. The `Window` is heap-allocated so its
+/// address remains stable for the lifetime of `GpuInfo`.
 struct App<'a> {
     hitable_list: Vec<Hitable>,
     gpu_info: Option<GpuInfo<'a>>,
@@ -720,6 +748,8 @@ struct App<'a> {
 }
 
 impl App<'_> {
+    /// Creates the application with the given scene objects. GPU initialization
+    /// is deferred until the first `resumed` event from the event loop.
     fn new(hitable_list: Vec<Hitable>) -> Self {
         Self {
             hitable_list,
@@ -815,6 +845,7 @@ impl ApplicationHandler for App<'_> {
     }
 }
 
+/// Starts the winit event loop and runs the application until the window is closed.
 fn run(hitable_list: Vec<Hitable>) {
     info!("Running");
     let event_loop = EventLoop::new().unwrap();
@@ -822,6 +853,10 @@ fn run(hitable_list: Vec<Hitable>) {
     event_loop.run_app(&mut app).unwrap();
 }
 
+/// Entry point for the ray tracer.
+///
+/// Builds the scene (four spheres with different materials/textures), initializes
+/// logging, and starts the render loop via [`run`].
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub fn ray_tracer() {
     let sphere1 = Sphere::new(Vector3::new(0.0, 0.0, -1.2), 0.5);

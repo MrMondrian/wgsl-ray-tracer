@@ -55,6 +55,8 @@ struct Texture {
     odd: vec3<f32>,
 }
 
+// Dispatches a ray-object intersection test based on the hitable's kind.
+// Returns a null HitRecord if the kind is unrecognised or there is no hit.
 fn hit_object(hitable: Hitable, r: Ray, t_min: f32, t_max: f32) -> HitRecord {
     if hitable.kind == SPHERE {
         return hit_sphere(hitable, r, t_min, t_max);
@@ -62,10 +64,14 @@ fn hit_object(hitable: Hitable, r: Ray, t_min: f32, t_max: f32) -> HitRecord {
     return null_hit_record();
 }
 
+// Evaluates the ray equation P(t) = origin + t * direction.
 fn at(ray: Ray, t: f32) -> vec3<f32> {
     return ray.origin + t * ray.direction;
 }
 
+// Ray-sphere intersection using the quadratic formula (half-b variant).
+// Returns a null HitRecord if there is no hit in [ray_tmin, ray_tmax].
+// Sets the outward normal and computes UV coordinates on the sphere surface.
 fn hit_sphere(hitable: Hitable, r: Ray, ray_tmin: f32, ray_tmax: f32) -> HitRecord {
     let oc = hitable.sphere.center - r.origin;
     let a = dot(r.direction, r.direction);
@@ -95,6 +101,8 @@ fn hit_sphere(hitable: Hitable, r: Ray, ray_tmin: f32, ray_tmax: f32) -> HitReco
 
 }
 
+// Ensures the stored normal always points against the incoming ray.
+// Returns the (possibly flipped) normal for the hit record.
 fn set_front_face(rec: HitRecord, r: Ray) -> vec3<f32> {
     let front_face = dot(r.direction, rec.normal) < 0.0;
     if !front_face {
@@ -104,6 +112,8 @@ fn set_front_face(rec: HitRecord, r: Ray) -> vec3<f32> {
 }
 
 
+// Maps a unit-sphere surface point to (u, v) in [0,1]^2.
+// u is the longitude (0 at -x, 0.5 at +x), v is the latitude (0 at south pole).
 fn get_sphere_uv(p: vec3<f32>) -> vec2<f32> {
     let theta = acos(-p.y);
     let phi = atan2(-p.z, p.x) + PI;
@@ -112,6 +122,7 @@ fn get_sphere_uv(p: vec3<f32>) -> vec2<f32> {
     return vec2(u,v);
 }
 
+// Reflects vector v about normal n: v - 2*(v·n)*n.
 fn reflect(v: vec3<f32>, n: vec3<f32>) -> vec3<f32> {
     return v - 2.0 * dot(v, n) * n;
 }
@@ -123,6 +134,7 @@ fn null_hit_record() -> HitRecord {
 fn null_texture() -> Texture {
     return Texture(vec3(0.0,0.0,0.0),0, 0.0, vec3(0.0,0.0,0.0), vec3(0.0,0.0,0.0));
 }
+// Samples the bound diffuse texture at the hit's (u, v) coordinates.
 fn get_attenuation_image(rec: HitRecord) -> vec3<f32> {
     let dims = textureDimensions(t_diffuse);
     let x = clamp(u32(rec.u * f32(dims.x)), 0u, dims.x - 1u);
@@ -130,7 +142,9 @@ fn get_attenuation_image(rec: HitRecord) -> vec3<f32> {
     return textureLoad(t_diffuse, vec2<u32>(x, y), 0).xyz;
 }
 
-fn get_attenuation(tex: Texture, rec: HitRecord) -> vec3<f32> { 
+// Returns the attenuation color for a texture at the hit point.
+// Dispatches to solid, checker, or image sampling based on tex.kind.
+fn get_attenuation(tex: Texture, rec: HitRecord) -> vec3<f32> {
     switch tex.kind { 
         case SOLID_COLOR: {
             return get_attenuation_solid(tex);
@@ -148,6 +162,8 @@ fn get_attenuation(tex: Texture, rec: HitRecord) -> vec3<f32> {
     }
 }
 
+// Dispatches scattering to the appropriate BRDF based on material.kind.
+// Returns a null ScatterRecord for unknown material kinds.
 fn scatter(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
     if material.kind == LAMBERTIAN {
         return scatter_lambertian(material, r, rec, seed);
@@ -158,6 +174,7 @@ fn scatter(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> Scatt
     return ScatterRecord(false, vec3(0.0, 0.0, 0.0), Ray(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0)));
 }
 
+// Lambertian (diffuse) scatter: shoots a random ray on the hemisphere around the normal.
 fn scatter_lambertian(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
     let scatter_ray = random_vec3_on_hemisphere(rec.normal, seed);
     let scattered = Ray(rec.p, scatter_ray);
@@ -165,6 +182,7 @@ fn scatter_lambertian(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32
     return ScatterRecord(true, attenuation, scattered);
 }
 
+// Metal scatter: perfectly reflects the incoming ray about the surface normal.
 fn scatter_metal(material: Material, r: Ray, rec: HitRecord, seed: vec3<f32>) -> ScatterRecord {
     let reflected = reflect(normalize(r.direction), rec.normal);
     let scattered = Ray(rec.p, reflected);
@@ -189,6 +207,8 @@ fn get_attentuation_checker(tex: Texture, rec: HitRecord) -> vec3<f32> {
     return tex.odd;
 }
 
+// Generates a random unit vector in the hemisphere oriented around `normal`.
+// Uses sample_vec3 for the random offset, then flips if it lands in the wrong hemisphere.
 fn random_vec3_on_hemisphere(normal: vec3<f32>, rng_seed: vec3<f32>) -> vec3<f32> {
     let p = normal + sample_vec3(rng_seed);
     var normed = normalize(p);
@@ -198,6 +218,7 @@ fn random_vec3_on_hemisphere(normal: vec3<f32>, rng_seed: vec3<f32>) -> vec3<f32
     return normed;
 }
 
+// Generates a random vec3 in [-1, 1]^3 by hashing three offset seeds.
 fn sample_vec3(rng_seed: vec3<f32>) -> vec3<f32> {
     let out = vec3<f32>(
         random_vec3(rng_seed + vec3<f32>(0.0, 1.0, 2.0)),
@@ -207,6 +228,7 @@ fn sample_vec3(rng_seed: vec3<f32>) -> vec3<f32> {
     return out * 2.0 - 1.0;
 }
 
+// Generates a random vec2 in [-0.5, 0.5]^2 for sub-pixel jitter.
 fn sample_square(rng_seed: vec3<f32>) -> vec2<f32> {
     let sample = vec2<f32>(
         random_vec3(rng_seed + vec3<f32>(0.0, 1.0, 2.0)),
@@ -217,6 +239,7 @@ fn sample_square(rng_seed: vec3<f32>) -> vec2<f32> {
 
 fn random_vec2(v: vec2<f32>) -> f32 { return float_construct(hash_vec2(vec2<u32>(bitcast<u32>(v.x), bitcast<u32>(v.y)))); }
 fn random_vec3(v: vec3<f32>) -> f32 { return float_construct(hash_vec3(vec3<u32>(bitcast<u32>(v.x), bitcast<u32>(v.y), bitcast<u32>(v.z)))); }
+// Wang/Jenkins integer hash — avalanches all bits of x.
 fn hash(x: u32) -> u32 {
     var result = x;
     result += (result << 10u);
@@ -241,6 +264,7 @@ fn float_construct(m: u32) -> f32 {
     return bitcast<f32>(result) - 1.0;    // Range [0:1]
 }
 
+// Extracts the upper-left 3x3 rotation/scale block from a 4x4 matrix.
 fn mat_4_to_3(m: mat4x4<f32>) -> mat3x3<f32> {
     return mat3x3<f32>(
         vec3<f32>(m[0].xyz),
