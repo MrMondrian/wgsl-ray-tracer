@@ -42,6 +42,7 @@ fn init_composer() -> Composer {
     };
 
     load_composable(include_str!("lib.wgsl"), "lib.wgsl");
+    load_composable(include_str!("binds.wgsl"), "binds.wgsl");
 
     composer
 }
