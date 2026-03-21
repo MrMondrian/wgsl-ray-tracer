@@ -30,6 +30,10 @@
   blit_vs_impl,
 }
 
+const DT: f32 = 1;
+const BOUND: f32 = 1000;
+const MAX_LOOPS: u32 = 1000u;
+
 @vertex
 fn blit_vs(@builtin(vertex_index) vertex_index: u32) -> BlitVertexOutput {
     return blit_vs_impl(vertex_index);
@@ -80,7 +84,17 @@ fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     var hits = 0u;
     var attenuations = array<vec3<f32>, 100>();
     var curr_ray = ray;
-    let uv = get_sphere_uv(normalize(ray.direction));
+    var i: u32 = 0;
+    while i < MAX_LOOPS && length(curr_ray.origin) < BOUND {
+        curr_ray = step_ray(curr_ray);
+        i++;
+    }
+    let uv = get_sphere_uv(normalize(curr_ray.direction));
     var color = get_attenuation_image(uv.x, uv.y);
     return vec4<f32>(color, 1.0);
+}
+
+fn step_ray(ray: Ray) -> Ray {
+    let new_origin = ray.origin + (ray.direction * DT);
+    return Ray(new_origin, normalize(ray.direction));
 }
