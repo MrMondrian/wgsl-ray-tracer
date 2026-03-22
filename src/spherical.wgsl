@@ -37,6 +37,7 @@
 const DT: f32 = 1.0;
 const BOUND: f32 = 1000;
 const MAX_LOOPS: u32 = 1000;
+const B: f32 = 1.0;
 
 struct State {
     x: vec4<f32>,
@@ -208,6 +209,65 @@ fn partial_derivative_inverse_metric_tensor_minkowski_spherical(u: u32, x: vec4<
         }
         default: { 
             // case 0 (time) and case 3 (phi) remain zero
+        }
+    }
+    return dg;
+}
+
+fn metric_tensor_ellis_spherical(x: vec4<f32>) -> mat4x4<f32> {
+    let l = x[1];
+    let theta = x[2];
+    let b_l_squared = b * b + l * l;
+    let sin_theta = sin(theta);
+    let sin_squared_theta = sin_theta * sin_theta;
+    return mat4x4<f32> (
+        -1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, b_l_squared, 0.0,
+        0.0 , 0.0, 0.0, b_l_squared * sin_squared_theta
+    );
+}
+
+fn inverse_metric_tensor_ellis_spherical(x: vec4<f32>) -> mat4x4<f32> {
+    let l = x[1];
+    let theta = x[2];
+    let b_l_squared = b * b + l * l;
+    let sin_theta = sin(theta);
+    let sin_squared_theta = max(sin_theta * sin_theta, 1e-6);
+    return mat4x4<f32> (
+        -1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0 / b_l_squared, 0.0,
+        0.0 , 0.0, 0.0, 1.0 / (b_l_squared * sin_squared_theta)
+    );
+}
+
+fn partial_derivative_inverse_metric_tensor_ellis_spherical(u: u32, x: vec4<f32>) -> mat4x4<f32> {
+    let l = x[1];
+    let theta = x[2]; 
+    
+    let R2 = l * l + B * B;
+    let R4 = max(R2 * R2, 1e-9); // R^4 for the denominator
+    
+    let sin_t = sin(theta);
+    let cos_t = cos(theta);
+    let sin2_t = max(sin_t * sin_t, 1e-6);
+    let sin3_t = sin2_t * sin_t;
+
+    var dg = mat4x4<f32>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+    switch u {
+        case 1u: { // d/dl (Radial Change)
+            let common_deriv = (-2.0 * l) / R4;
+            dg[2][2] = common_deriv;             // d/dl of (1/R^2)
+            dg[3][3] = common_deriv / sin2_t;    // d/dl of (1/(R^2 * sin^2))
+        }
+        case 2u: { // d/dtheta (Angular Change)
+            // Only the phi component depends on theta
+            dg[3][3] = (-2.0 * cos_t) / (R2 * sin3_t);
+        }
+        default: {
+            // d/dt and d/dphi are 0 (Static and Axisymmetric)
         }
     }
     return dg;
