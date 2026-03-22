@@ -19,6 +19,8 @@ use winit::{
 };
 pub mod camera;
 use crate::camera::Camera;
+pub mod camera_cartesian;
+pub mod camera_spherical;
 pub mod hitable;
 use crate::hitable::*;
 use log::*;
@@ -49,6 +51,7 @@ fn init_composer() -> Composer {
 
     load_composable(include_str!("lib.wgsl"), "lib.wgsl");
     load_composable(include_str!("binds.wgsl"), "binds.wgsl");
+    load_composable(include_str!("binds_spherical.wgsl"), "binds_spherical.wgsl");
     load_composable(include_str!("blit.wgsl"), "blit.wgsl");
 
     composer
@@ -59,6 +62,7 @@ fn init_composer() -> Composer {
 /// Owns the wgpu surface/device/queue and every resource needed for one render frame.
 /// The lifetime `'a` is tied to the [`Window`] reference stored inside.
 struct GpuInfo<'a> {
+    shader: Shader,
     surface: wgpu::Surface<'a>,
     device: wgpu::Device,
     queue: wgpu::Queue,
@@ -229,11 +233,16 @@ impl<'a> GpuInfo<'a> {
         let diffuse_texture2_view =
             diffuse_texture2.create_view(&wgpu::TextureViewDescriptor::default());
 
+        let (initial_center, initial_l) = match shader {
+            Shader::Cartesian => (Vector3::<f32>::zeros(), 0.0),
+            Shader::Spherical => (Vector3::<f32>::new(5.0, 0.0, 0.0), 5.0),
+        };
         let camera = Camera::new(
             config.width,
             config.height as f32,
-            Vector3::<f32>::new(5.0, 0.0, 0.0),
+            initial_center,
             Matrix4::<f32>::identity(),
+            initial_l,
         );
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
@@ -547,6 +556,7 @@ impl<'a> GpuInfo<'a> {
         });
 
         Self {
+            shader,
             surface,
             device,
             queue,
@@ -658,6 +668,7 @@ impl<'a> GpuInfo<'a> {
             self.config.height as f32,
             self.camera.center,
             self.camera.rotation,
+            self.camera.l,
         );
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));
@@ -723,44 +734,40 @@ impl<'a> GpuInfo<'a> {
     /// WASD/QE translate along the camera's local axes. IJKL/UO rotate around
     /// local X/Y/Z axes. Space resets the camera to the origin.
     /// After any movement the camera uniform is re-uploaded and a redraw is requested.
+    fn apply_move(&mut self, move_global: Vector3<f32>) {
+        match self.shader {
+            Shader::Cartesian => camera_cartesian::apply_move(&mut self.camera, move_global),
+            Shader::Spherical => camera_spherical::apply_move(&mut self.camera, move_global),
+        }
+    }
+
     fn handle_key(&mut self, event: &KeyEvent) {
         let speed = 0.1;
         let rotation3x3 = self.camera.rotation.fixed_view::<3, 3>(0, 0).clone();
         match event.physical_key {
             PhysicalKey::Code(KeyCode::KeyW) => {
-                let move_local = Vector3::new(0.0, 0.0, -speed);
-                let move_global = rotation3x3 * move_local;
-                self.camera.center += move_global;
+                let move_global = rotation3x3 * Vector3::new(0.0, 0.0, -speed);
+                self.apply_move(move_global);
             }
             PhysicalKey::Code(KeyCode::KeyS) => {
-                // self.camera.center += Vector3::new(0.0, 0.0, speed);
-                let move_local = Vector3::new(0.0, 0.0, speed);
-                let move_global = rotation3x3 * move_local;
-                self.camera.center += move_global;
+                let move_global = rotation3x3 * Vector3::new(0.0, 0.0, speed);
+                self.apply_move(move_global);
             }
             PhysicalKey::Code(KeyCode::KeyA) => {
-                // self.camera.center += Vector3::new(-speed, 0.0, 0.0);
-                let move_local = Vector3::new(-speed, 0.0, 0.0);
-                let move_global = rotation3x3 * move_local;
-                self.camera.center += move_global;
+                let move_global = rotation3x3 * Vector3::new(-speed, 0.0, 0.0);
+                self.apply_move(move_global);
             }
             PhysicalKey::Code(KeyCode::KeyD) => {
-                // self.camera.center += Vector3::new(speed, 0.0, 0.0);
-                let move_local = Vector3::new(speed, 0.0, 0.0);
-                let move_global = rotation3x3 * move_local;
-                self.camera.center += move_global;
+                let move_global = rotation3x3 * Vector3::new(speed, 0.0, 0.0);
+                self.apply_move(move_global);
             }
             PhysicalKey::Code(KeyCode::KeyQ) => {
-                // self.camera.center += Vector3::new(0.0, speed, 0.0);
-                let move_local = Vector3::new(0.0, speed, 0.0);
-                let move_global = rotation3x3 * move_local;
-                self.camera.center += move_global;
+                let move_global = rotation3x3 * Vector3::new(0.0, speed, 0.0);
+                self.apply_move(move_global);
             }
             PhysicalKey::Code(KeyCode::KeyE) => {
-                // self.camera.center += Vector3::new(0.0, -speed, 0.0);
-                let move_local = Vector3::new(0.0, -speed, 0.0);
-                let move_global = rotation3x3 * move_local;
-                self.camera.center += move_global;
+                let move_global = rotation3x3 * Vector3::new(0.0, -speed, 0.0);
+                self.apply_move(move_global);
             }
             PhysicalKey::Code(KeyCode::KeyJ) => {
                 self.camera.rotation =
@@ -787,7 +794,10 @@ impl<'a> GpuInfo<'a> {
                     self.camera.rotation * Matrix4::from_axis_angle(&Vector3::z_axis(), -0.1);
             }
             PhysicalKey::Code(KeyCode::Space) => {
-                self.camera.center = Vector3::new(5.0, 0.0, 0.0);
+                (self.camera.center, self.camera.l) = match self.shader {
+                    Shader::Cartesian => (Vector3::zeros(), 0.0),
+                    Shader::Spherical => (Vector3::new(5.0, 0.0, 0.0), 5.0),
+                };
                 self.camera.rotation = Matrix4::identity();
             }
             _ => {}
@@ -797,6 +807,7 @@ impl<'a> GpuInfo<'a> {
             self.config.height as f32,
             self.camera.center,
             self.camera.rotation,
+            self.camera.l,
         );
         self.queue
             .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&[self.camera]));

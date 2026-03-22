@@ -31,7 +31,8 @@ pub struct Camera {
     pub max_depth: u32, // if this needs to be > 100 edit the shader
     /// Accumulation frame counter — incremented each render pass.
     pub iteration: u32,
-    _pad6: f32,  // Padding to align Camera to 16 bytes
+    /// Signed Ellis radial coordinate (negative = universe 2).
+    pub l: f32,
     /// Camera rotation matrix applied to ray directions in the shader.
     pub rotation: Matrix4<f32>,
 }
@@ -41,7 +42,7 @@ impl Camera {
     ///
     /// Computes the pixel grid geometry (pixel00_loc, pixel_delta_u/v) from the
     /// image dimensions and a fixed focal length of 1.0.
-    pub fn new(image_width: u32, image_height: f32, center: Vector3<f32>, rotation: Matrix4<f32>) -> Self {
+    pub fn new(image_width: u32, image_height: f32, center: Vector3<f32>, rotation: Matrix4<f32>, l: f32) -> Self {
         let aspect_ratio = image_width as f32 / image_height;
         let focal_length: f32 = 1.0;
         let view_height: f32 = 2.0;
@@ -72,7 +73,7 @@ impl Camera {
             pixels_sample_scale,
             max_depth,
             iteration: 1,
-            _pad6: 0.0,
+            l,
             rotation: rotation,
         }
     }

@@ -19,7 +19,7 @@
     PI,
 }
 
-#import binds::{
+#import binds_spherical::{
     Camera,
     camera,
     hitabble_list,
@@ -34,7 +34,10 @@
     blit_vs_impl,
 }
 
-const DT: f32 = 1.0;
+const DT_INIT: f32 = 1.0;
+const DT_MIN: f32 = 0.01;
+const DT_MAX: f32 = 10.0;
+const TOL: f32 = 1e-4;
 const BOUND: f32 = 1000;
 const MAX_LOOPS: u32 = 1000;
 const B: f32 = 1.0;
@@ -42,6 +45,11 @@ const B: f32 = 1.0;
 struct State {
     x: vec4<f32>,
     p: vec4<f32>
+}
+
+struct AdaptiveState {
+    state: State,
+    dt: f32,
 }
 
 @vertex
@@ -96,13 +104,14 @@ fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     // var curr_ray = ray;
     var i: u32 = 0;
     let origin_spherical = cartesian_to_spherical(ray.origin);
-    let x = vec4<f32>(0.0,origin_spherical);
+    let x = vec4<f32>(0.0, camera.l, origin_spherical.y, origin_spherical.z);
     let p = init_p(x, ray.direction);
-    var state = State(x, p);
-    while i < MAX_LOOPS && abs(state.x[1]) < BOUND {
-        state = step_ray(state);
+    var adaptive = AdaptiveState(State(x, p), DT_INIT);
+    while i < MAX_LOOPS && abs(adaptive.state.x[1]) < BOUND {
+        adaptive = step_rk24_adaptive(adaptive.state, adaptive.dt);
         i++;
     }
+    let state = adaptive.state;
     let u = fract(state.x[3] / (2*PI) + 1.0);
     let v = clamp(state.x[2] / PI, 0.0, 1.0);
     let tex_index = select(0u, 1u, state.x[1] < 0.0);
@@ -138,14 +147,56 @@ fn init_p(x: vec4<f32>, direction: vec3<f32>) ->  vec4<f32> {
     return vec4<f32>(pt, pl, p_theta, p_phi);
 }
 
-fn step_ray(state: State) -> State {
+
+fn step_rk24_adaptive(state: State, dt: f32) -> AdaptiveState {
     let x = state.x;
     let p = state.p;
-    let x_dot = get_x_dot(x, p);
-    let p_dot = get_p_dot(x, p );
-    let x_new = x + DT * x_dot;
-    let p_new = p + DT * p_dot;
-    return State(x_new, p_new);
+
+    // k1: slopes at start
+    let k1_x = get_x_dot(x, p);
+    let k1_p = get_p_dot(x, p);
+
+    // k2: slopes at midpoint (shared by RK2 and RK4)
+    let x_mid = x + 0.5 * dt * k1_x;
+    let p_mid = p + 0.5 * dt * k1_p;
+    let k2_x = get_x_dot(x_mid, p_mid);
+    let k2_p = get_p_dot(x_mid, p_mid);
+
+    // RK2 estimate (midpoint rule)
+    let x_rk2 = x + dt * k2_x;
+    let p_rk2 = p + dt * k2_p;
+
+    // k3, k4: additional RK4 stages
+    let x_mid2 = x + 0.5 * dt * k2_x;
+    let p_mid2 = p + 0.5 * dt * k2_p;
+    let k3_x = get_x_dot(x_mid2, p_mid2);
+    let k3_p = get_p_dot(x_mid2, p_mid2);
+
+    let x_end = x + dt * k3_x;
+    let p_end = p + dt * k3_p;
+    let k4_x = get_x_dot(x_end, p_end);
+    let k4_p = get_p_dot(x_end, p_end);
+
+    // RK4 estimate
+    let x_rk4 = x + (dt / 6.0) * (k1_x + 2.0 * k2_x + 2.0 * k3_x + k4_x);
+    let p_rk4 = p + (dt / 6.0) * (k1_p + 2.0 * k2_p + 2.0 * k3_p + k4_p);
+
+    // Error: max component of |RK4 - RK2|
+    let ex = abs(x_rk4 - x_rk2);
+    let ep = abs(p_rk4 - p_rk2);
+    let error = max(max(max(ex.x, ex.y), max(ex.z, ex.w)),
+                    max(max(ep.x, ep.y), max(ep.z, ep.w)));
+
+    // Scale next dt: error ~ O(dt^2) for RK2, so exponent is 1/3
+    var new_dt = dt;
+    if error > 1e-10 {
+        new_dt = dt * clamp(0.9 * pow(TOL / error, 1.0 / 3.0), 0.1, 4.0);
+    } else {
+        new_dt = dt * 2.0;
+    }
+    new_dt = clamp(new_dt, DT_MIN, DT_MAX);
+
+    return AdaptiveState(State(x_rk4, p_rk4), new_dt);
 }
 
 fn get_x_dot(x: vec4<f32>, p: vec4<f32>) -> vec4<f32> {
