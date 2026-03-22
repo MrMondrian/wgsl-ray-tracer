@@ -194,7 +194,7 @@ impl<'a> GpuInfo<'a> {
         let camera = Camera::new(
             config.width,
             config.height as f32,
-            Vector3::<f32>::zeros(),
+            Vector3::<f32>::new(5.0, 0.0, 0.0),
             Matrix4::<f32>::identity(),
         );
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -730,7 +730,7 @@ impl<'a> GpuInfo<'a> {
                     self.camera.rotation * Matrix4::from_axis_angle(&Vector3::z_axis(), -0.1);
             }
             PhysicalKey::Code(KeyCode::Space) => {
-                self.camera.center = Vector3::zeros();
+                self.camera.center = Vector3::new(5.0, 0.0, 0.0);
                 self.camera.rotation = Matrix4::identity();
             }
             _ => {}

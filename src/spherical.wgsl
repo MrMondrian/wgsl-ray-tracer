@@ -34,9 +34,9 @@
     blit_vs_impl,
 }
 
-const DT: f32 = 1;
+const DT: f32 = 1.0;
 const BOUND: f32 = 1000;
-const MAX_LOOPS: u32 = 1000u;
+const MAX_LOOPS: u32 = 1000;
 
 struct State {
     x: vec4<f32>,
@@ -98,13 +98,14 @@ fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     let x = vec4<f32>(0.0,origin_spherical);
     let p = init_p(x, ray.direction);
     var state = State(x, p);
-    while i < MAX_LOOPS && state.x[1] < BOUND {
+    while i < MAX_LOOPS && state.x[1] < BOUND && state.x[1] > 0.0 {
         state = step_ray(state);
         i++;
     }
-    let u = state.x[3] / (2*PI);
-    let v = state.x[2] / PI;
-    return vec4<f32>(u, v, 0.0, 1.0);
+    let u = fract(state.x[3] / (2*PI) + 1.0);
+    let v = clamp(state.x[2] / PI, 0.0, 1.0);
+    let color = get_attenuation_image(u, v);
+    return vec4<f32>(color, 1.0);
 }
 
 fn init_p(x: vec4<f32>, direction: vec3<f32>) ->  vec4<f32> {
@@ -173,9 +174,9 @@ fn metric_tensor_minkowski_spherical(x: vec4<f32>) -> mat4x4<f32> {
 fn inverse_metric_tensor_minkowski_spherical(x: vec4<f32>) -> mat4x4<f32> {
     let r = x[1];
     let theta = x[2];
-    let r_squared = r * r;
+    let r_squared = max(r * r, 1e-6);
     let sin_theta = sin(theta);
-    let sin_squared_theta = sin_theta * sin_theta;
+    let sin_squared_theta = max(sin_theta * sin_theta, 1e-6);
     return mat4x4<f32> (
         -1.0, 0.0, 0.0, 0.0,
         0.0, 1.0, 0.0, 0.0,
@@ -188,10 +189,10 @@ fn partial_derivative_inverse_metric_tensor_minkowski_spherical(u: u32, x: vec4<
     let r = x[1];
     let theta = x[2]; 
     
-    let r3 = r * r * r;
+    let r3 = max(r * r * r, 1e-9);
     let sin_t = sin(theta);
-    let sin2_t = sin_t * sin_t;
-    let sin3_t = sin2_t * sin_t;
+    let sin2_t = max(sin_t * sin_t, 1e-6);
+    let sin3_t = max(sin2_t * abs(sin_t), 1e-9);
     let cos_t = cos(theta);
 
     // Default to zero matrix
@@ -203,7 +204,7 @@ fn partial_derivative_inverse_metric_tensor_minkowski_spherical(u: u32, x: vec4<
             dg[3][3] = -2.0 / (r3 * sin2_t);
         }
         case 2u: { // d/dtheta
-            dg[3][3] = (-2.0 * cos_t) / (r * r * sin3_t);
+            dg[3][3] = (-2.0 * cos_t) / (max(r * r, 1e-6) * sin3_t);
         }
         default: { 
             // case 0 (time) and case 3 (phi) remain zero
