@@ -135,7 +135,7 @@ impl<'a> GpuInfo<'a> {
             .unwrap();
         surface.configure(&device, &config);
 
-        let diffuse_bytes = include_bytes!("../assets/red.jpg");
+        let diffuse_bytes = include_bytes!("../assets/grid.png");
         let diffuse_image = image::load_from_memory(diffuse_bytes).unwrap();
         let diffuse_rgba = diffuse_image.to_rgba8();
 
