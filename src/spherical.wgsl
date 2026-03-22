@@ -5,11 +5,11 @@
     Material,
     Texture,
     max_f32,
-    hit_object, 
-    null_hit_record, 
-    scatter, 
-    sample_vec3, 
-    sample_square, 
+    hit_object,
+    null_hit_record,
+    scatter,
+    sample_vec3,
+    sample_square,
     mat_4_to_3,
     get_attenuation_image,
     get_sphere_uv,
@@ -99,40 +99,43 @@ fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     let x = vec4<f32>(0.0,origin_spherical);
     let p = init_p(x, ray.direction);
     var state = State(x, p);
-    while i < MAX_LOOPS && state.x[1] < BOUND && state.x[1] > 0.0 {
+    while i < MAX_LOOPS && abs(state.x[1]) < BOUND {
         state = step_ray(state);
         i++;
     }
     let u = fract(state.x[3] / (2*PI) + 1.0);
     let v = clamp(state.x[2] / PI, 0.0, 1.0);
-    let color = get_attenuation_image(u, v);
+    let tex_index = select(0u, 1u, state.x[1] < 0.0);
+    let color = get_attenuation_image(u, v, tex_index);
     return vec4<f32>(color, 1.0);
 }
 
 fn init_p(x: vec4<f32>, direction: vec3<f32>) ->  vec4<f32> {
-    let r = x[1];
+    let l = x[1];
     let theta = x[2];
     let phi = x[3];
 
     let dir = normalize(direction);
 
-    // Calculate Spherical Basis Vectors
+    // Spherical basis vectors
     let sin_t = sin(theta);
     let cos_t = cos(theta);
     let sin_p = sin(phi);
     let cos_p = cos(phi);
 
-    let r_hat = vec3<f32>(sin_t * cos_p, sin_t * sin_p, cos_t);
+    let r_hat     = vec3<f32>(sin_t * cos_p, sin_t * sin_p, cos_t);
     let theta_hat = vec3<f32>(cos_t * cos_p, cos_t * sin_p, -sin_t);
-    let phi_hat = vec3<f32>(-sin_p, cos_p, 0.0);
+    let phi_hat   = vec3<f32>(-sin_p, cos_p, 0.0);
 
-    // Initial Momenta
-    let pt = -1.0; // Energy constant
-    let pr = dot(dir, r_hat);
-    let p_theta = r * dot(dir, theta_hat);
-    let p_phi = r * sin_t * dot(dir, phi_hat);
+    // Angular scale factor for Ellis: sqrt(b^2 + l^2)
+    let rho = sqrt(B * B + l * l);
 
-    return vec4<f32>(pt, pr, p_theta, p_phi);
+    let pt      = -1.0; // Energy constant (null geodesic)
+    let pl      = dot(dir, r_hat);
+    let p_theta = rho * dot(dir, theta_hat);
+    let p_phi   = rho * sin_t * dot(dir, phi_hat);
+
+    return vec4<f32>(pt, pl, p_theta, p_phi);
 }
 
 fn step_ray(state: State) -> State {
@@ -146,14 +149,13 @@ fn step_ray(state: State) -> State {
 }
 
 fn get_x_dot(x: vec4<f32>, p: vec4<f32>) -> vec4<f32> {
-    let x_dot = inverse_metric_tensor_minkowski_spherical(x) * p;
-    return x_dot;
+    return inverse_metric_tensor_ellis_spherical(x) * p;
 }
 
 fn get_p_dot(x: vec4<f32>, p: vec4<f32>) -> vec4<f32> {
     var p_dot = vec4<f32>(0,0,0,0);
     for(var i = 0; i < 4; i++) {
-        p_dot[i] =  - 0.5 * dot(p, partial_derivative_inverse_metric_tensor_minkowski_spherical(u32(i), x) * p);
+        p_dot[i] = -0.5 * dot(p, partial_derivative_inverse_metric_tensor_ellis_spherical(u32(i), x) * p);
     }
     return p_dot;
 }
@@ -217,7 +219,7 @@ fn partial_derivative_inverse_metric_tensor_minkowski_spherical(u: u32, x: vec4<
 fn metric_tensor_ellis_spherical(x: vec4<f32>) -> mat4x4<f32> {
     let l = x[1];
     let theta = x[2];
-    let b_l_squared = b * b + l * l;
+    let b_l_squared = B * B + l * l;
     let sin_theta = sin(theta);
     let sin_squared_theta = sin_theta * sin_theta;
     return mat4x4<f32> (
@@ -231,7 +233,7 @@ fn metric_tensor_ellis_spherical(x: vec4<f32>) -> mat4x4<f32> {
 fn inverse_metric_tensor_ellis_spherical(x: vec4<f32>) -> mat4x4<f32> {
     let l = x[1];
     let theta = x[2];
-    let b_l_squared = b * b + l * l;
+    let b_l_squared = B * B + l * l;
     let sin_theta = sin(theta);
     let sin_squared_theta = max(sin_theta * sin_theta, 1e-6);
     return mat4x4<f32> (

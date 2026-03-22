@@ -82,6 +82,7 @@ struct GpuInfo<'a> {
     #[allow(dead_code)]
     window: &'a Window,
     diffuse_texture_view: wgpu::TextureView,
+    diffuse_texture2_view: wgpu::TextureView,
 }
 
 impl<'a> GpuInfo<'a> {
@@ -190,6 +191,43 @@ impl<'a> GpuInfo<'a> {
 
         let diffuse_texture_view =
             diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        let diffuse_bytes2 = include_bytes!("../assets/red.jpg");
+        let diffuse_image2 = image::load_from_memory(diffuse_bytes2).unwrap();
+        let diffuse_rgba2 = diffuse_image2.to_rgba8();
+        let dimensions2 = diffuse_image2.dimensions();
+        let texture_size2 = wgpu::Extent3d {
+            width: dimensions2.0,
+            height: dimensions2.1,
+            depth_or_array_layers: 1,
+        };
+        let diffuse_texture2 = device.create_texture(&wgpu::TextureDescriptor {
+            size: texture_size2,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            label: Some("diffuse_texture2"),
+            view_formats: &[],
+        });
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &diffuse_texture2,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &diffuse_rgba2,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * dimensions2.0),
+                rows_per_image: Some(dimensions2.1),
+            },
+            texture_size2,
+        );
+        let diffuse_texture2_view =
+            diffuse_texture2.create_view(&wgpu::TextureViewDescriptor::default());
 
         let camera = Camera::new(
             config.width,
@@ -370,6 +408,16 @@ impl<'a> GpuInfo<'a> {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("output_texture_bind_group_layout"),
             });
@@ -384,6 +432,10 @@ impl<'a> GpuInfo<'a> {
                 wgpu::BindGroupEntry {
                     binding: 1,
                     resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture2_view),
                 },
             ],
             label: Some("output_texture_bind_group"),
@@ -517,6 +569,7 @@ impl<'a> GpuInfo<'a> {
             need_redraw: true,
             window,
             diffuse_texture_view,
+            diffuse_texture2_view,
         }
     }
 
@@ -640,6 +693,10 @@ impl<'a> GpuInfo<'a> {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::TextureView(&self.diffuse_texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&self.diffuse_texture2_view),
                     },
                 ],
                 label: Some("output_texture_bind_group"),

@@ -9,6 +9,7 @@ const SPHERE: u32 = 0u;
 const max_f32: f32 = 1000000.0;
 
 @group(3) @binding(1) var t_diffuse: texture_2d<f32>;
+@group(3) @binding(2) var t_diffuse2: texture_2d<f32>;
 
 struct Ray {
     origin: vec3<f32>,
@@ -136,14 +137,21 @@ fn null_texture() -> Texture {
 }
 // Samples the bound diffuse texture at the hit's (u, v) coordinates.
 fn get_attenuation_image_hr(rec: HitRecord) -> vec3<f32> {
-    return get_attenuation_image(rec.u, rec.v);
+    return get_attenuation_image(rec.u, rec.v, 0u);
 }
 
-fn get_attenuation_image(u: f32, v: f32) -> vec3<f32> {
-    let dims = textureDimensions(t_diffuse);
-    let x = clamp(u32(u * f32(dims.x)), 0u, dims.x - 1u);
-    let y = clamp(u32(v * f32(dims.y)), 0u, dims.y - 1u);
-    return textureLoad(t_diffuse, vec2<u32>(x, y), 0).xyz;
+fn get_attenuation_image(u: f32, v: f32, tex_index: u32) -> vec3<f32> {
+    if tex_index == 0u {
+        let dims = textureDimensions(t_diffuse);
+        let x = clamp(u32(u * f32(dims.x)), 0u, dims.x - 1u);
+        let y = clamp(u32(v * f32(dims.y)), 0u, dims.y - 1u);
+        return textureLoad(t_diffuse, vec2<u32>(x, y), 0).xyz;
+    } else {
+        let dims = textureDimensions(t_diffuse2);
+        let x = clamp(u32(u * f32(dims.x)), 0u, dims.x - 1u);
+        let y = clamp(u32(v * f32(dims.y)), 0u, dims.y - 1u);
+        return textureLoad(t_diffuse2, vec2<u32>(x, y), 0).xyz;
+    }
 }
 
 // Returns the attenuation color for a texture at the hit point.
