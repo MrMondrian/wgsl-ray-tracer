@@ -277,3 +277,9 @@ fn mat_4_to_3(m: mat4x4<f32>) -> mat3x3<f32> {
     );
 }
 
+fn cartesian_to_spherical(cart: vec3<f32>) -> vec3<f32> {
+    let r = length(cart);
+    let phi = atan(cart.y / cart.y);
+    let theta = acos(cart.z / r);
+    return vec3<f32>(r,theta,phi);
+}

@@ -1,38 +1,47 @@
 #import lib::{
-  Ray,
-  HitRecord,
-  ScatterRecord,
-  Material,
-  Texture,
-  max_f32,
-  hit_object, 
-  null_hit_record, 
-  scatter, 
-  sample_vec3, 
-  sample_square, 
-  mat_4_to_3,
-  get_attenuation_image,
-  get_sphere_uv
+    Ray,
+    HitRecord,
+    ScatterRecord,
+    Material,
+    Texture,
+    max_f32,
+    hit_object, 
+    null_hit_record, 
+    scatter, 
+    sample_vec3, 
+    sample_square, 
+    mat_4_to_3,
+    get_attenuation_image,
+    get_sphere_uv,
+    cartesian_to_spherical,
+    SphericalRay,
+    ray_to_spherical,
+    PI,
 }
 
 #import binds::{
-  Camera,
-  camera,
-  hitabble_list,
-  prev_frame,
-  output_texture
+    Camera,
+    camera,
+    hitabble_list,
+    prev_frame,
+    output_texture
 }
 
 #import blit::{
-  BlitVertexOutput,
-  blit_texture,
-  blit_sampler,
-  blit_vs_impl,
+    BlitVertexOutput,
+    blit_texture,
+    blit_sampler,
+    blit_vs_impl,
 }
 
 const DT: f32 = 1;
 const BOUND: f32 = 1000;
 const MAX_LOOPS: u32 = 1000u;
+
+struct State {
+    x: vec4<f32>,
+    p: vec4<f32>
+}
 
 @vertex
 fn blit_vs(@builtin(vertex_index) vertex_index: u32) -> BlitVertexOutput {
@@ -71,7 +80,7 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let ray_origin = camera.center;
     var ray_direction = pixel_loc - ray_origin;
     ray_direction = mat_4_to_3(camera.rotation) * ray_direction;
-    let ray = Ray(ray_origin, ray_direction);
+    let ray = Ray(ray_origin, normalize(ray_direction));
     let sample_color = ray_color(ray, seed);
     let color = (f32(camera.iteration - 1u) * prev_color + sample_color) / f32(camera.iteration);
     prev_frame[x + y * camera.image_width] = color;
@@ -83,18 +92,122 @@ fn cs_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 fn ray_color(ray: Ray, seed: vec3<f32>)  -> vec4<f32> {
     var hits = 0u;
     var attenuations = array<vec3<f32>, 100>();
-    var curr_ray = ray;
+    // var curr_ray = ray;
     var i: u32 = 0;
-    while i < MAX_LOOPS && length(curr_ray.origin) < BOUND {
-        curr_ray = step_ray(curr_ray);
+    let origin_spherical = cartesian_to_spherical(ray.origin);
+    let x = vec4<f32>(0.0,origin_spherical);
+    let p = init_p(x, ray.direction);
+    var state = State(x, p);
+    while i < MAX_LOOPS && state.x[1] < BOUND {
+        state = step_ray(state);
         i++;
     }
-    let uv = get_sphere_uv(normalize(curr_ray.direction));
-    var color = get_attenuation_image(uv.x, uv.y);
-    return vec4<f32>(color, 1.0);
+    let u = state.x[3] / (2*PI);
+    let v = state.x[2] / PI;
+    return vec4<f32>(u, v, 0.0, 1.0);
 }
 
-fn step_ray(ray: Ray) -> Ray {
-    let new_origin = ray.origin + (ray.direction * DT);
-    return Ray(new_origin, normalize(ray.direction));
+fn init_p(x: vec4<f32>, direction: vec3<f32>) ->  vec4<f32> {
+    let r = x[1];
+    let theta = x[2];
+    let phi = x[3];
+
+    let dir = normalize(direction);
+
+    // Calculate Spherical Basis Vectors
+    let sin_t = sin(theta);
+    let cos_t = cos(theta);
+    let sin_p = sin(phi);
+    let cos_p = cos(phi);
+
+    let r_hat = vec3<f32>(sin_t * cos_p, sin_t * sin_p, cos_t);
+    let theta_hat = vec3<f32>(cos_t * cos_p, cos_t * sin_p, -sin_t);
+    let phi_hat = vec3<f32>(-sin_p, cos_p, 0.0);
+
+    // Initial Momenta
+    let pt = -1.0; // Energy constant
+    let pr = dot(dir, r_hat);
+    let p_theta = r * dot(dir, theta_hat);
+    let p_phi = r * sin_t * dot(dir, phi_hat);
+
+    return vec4<f32>(pt, pr, p_theta, p_phi);
+}
+
+fn step_ray(state: State) -> State {
+    let x = state.x;
+    let p = state.p;
+    let x_dot = get_x_dot(x, p);
+    let p_dot = get_p_dot(x, p );
+    let x_new = x + DT * x_dot;
+    let p_new = p + DT * p_dot;
+    return State(x_new, p_new);
+}
+
+fn get_x_dot(x: vec4<f32>, p: vec4<f32>) -> vec4<f32> {
+    let x_dot = inverse_metric_tensor_minkowski_spherical(x) * p;
+    return x_dot;
+}
+
+fn get_p_dot(x: vec4<f32>, p: vec4<f32>) -> vec4<f32> {
+    var p_dot = vec4<f32>(0,0,0,0);
+    for(var i = 0; i < 4; i++) {
+        p_dot[i] =  - 0.5 * dot(p, partial_derivative_inverse_metric_tensor_minkowski_spherical(u32(i), x) * p);
+    }
+    return p_dot;
+}
+
+fn metric_tensor_minkowski_spherical(x: vec4<f32>) -> mat4x4<f32> {
+    let r = x[1];
+    let theta = x[2];
+    let r_squared = r * r;
+    let sin_theta = sin(theta);
+    let sin_squared_theta = sin_theta * sin_theta;
+    return mat4x4<f32> (
+        -1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, r_squared, 0.0,
+        0.0 , 0.0, 0.0, r_squared * sin_squared_theta
+    );
+}
+
+fn inverse_metric_tensor_minkowski_spherical(x: vec4<f32>) -> mat4x4<f32> {
+    let r = x[1];
+    let theta = x[2];
+    let r_squared = r * r;
+    let sin_theta = sin(theta);
+    let sin_squared_theta = sin_theta * sin_theta;
+    return mat4x4<f32> (
+        -1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0 / r_squared, 0.0,
+        0.0 , 0.0, 0.0, 1.0 / (r_squared * sin_squared_theta)
+    );
+}
+
+fn partial_derivative_inverse_metric_tensor_minkowski_spherical(u: u32, x: vec4<f32>) -> mat4x4<f32> {
+    let r = x[1];
+    let theta = x[2]; 
+    
+    let r3 = r * r * r;
+    let sin_t = sin(theta);
+    let sin2_t = sin_t * sin_t;
+    let sin3_t = sin2_t * sin_t;
+    let cos_t = cos(theta);
+
+    // Default to zero matrix
+    var dg = mat4x4<f32>(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+
+    switch u {
+        case 1u: { // d/dr
+            dg[2][2] = -2.0 / r3;
+            dg[3][3] = -2.0 / (r3 * sin2_t);
+        }
+        case 2u: { // d/dtheta
+            dg[3][3] = (-2.0 * cos_t) / (r * r * sin3_t);
+        }
+        default: { 
+            // case 0 (time) and case 3 (phi) remain zero
+        }
+    }
+    return dg;
 }
