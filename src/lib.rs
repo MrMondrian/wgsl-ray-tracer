@@ -3,7 +3,8 @@ use std::borrow::Cow;
 #[derive(Clone, Copy)]
 pub enum Shader {
     Cartesian,
-    Spherical,
+    SphericalEllis,
+    SphericalMinkowski,
 }
 
 #[allow(unused_variables, dead_code)]
@@ -31,7 +32,7 @@ use wasm_bindgen::prelude::*;
 /// Creates a naga_oil [`Composer`] pre-loaded with `lib.wgsl` as a composable module.
 ///
 /// `cartesian.wgsl` can then `#import` from `lib` to share struct definitions and helpers.
-fn init_composer() -> Composer {
+fn init_composer(geodesic_source: Option<&str>) -> Composer {
     let mut composer = Composer::default();
 
     let mut load_composable = |source: &str, file_path: &str| {
@@ -53,6 +54,9 @@ fn init_composer() -> Composer {
     load_composable(include_str!("binds.wgsl"), "binds.wgsl");
     load_composable(include_str!("binds_spherical.wgsl"), "binds_spherical.wgsl");
     load_composable(include_str!("blit.wgsl"), "blit.wgsl");
+    if let Some(src) = geodesic_source {
+        load_composable(src, "geodesic.wgsl");
+    }
 
     composer
 }
@@ -235,7 +239,7 @@ impl<'a> GpuInfo<'a> {
 
         let (initial_center, initial_l) = match shader {
             Shader::Cartesian => (Vector3::<f32>::zeros(), 0.0),
-            Shader::Spherical => (Vector3::<f32>::new(5.0, 0.0, 0.0), 5.0),
+            Shader::SphericalEllis | Shader::SphericalMinkowski => (Vector3::<f32>::new(5.0, 0.0, 0.0), 5.0),
         };
         let camera = Camera::new(
             config.width,
@@ -357,11 +361,12 @@ impl<'a> GpuInfo<'a> {
             }],
             label: Some("prev_pixels_bind_group"),
         });
-        let (wgsl_source, wgsl_path) = match shader {
-            Shader::Cartesian => (include_str!("cartesian.wgsl"), "cartesian.wgsl"),
-            Shader::Spherical => (include_str!("spherical.wgsl"), "spherical.wgsl"),
+        let (wgsl_source, wgsl_path, geodesic_source) = match shader {
+            Shader::Cartesian => (include_str!("cartesian.wgsl"), "cartesian.wgsl", None),
+            Shader::SphericalEllis => (include_str!("spherical.wgsl"), "spherical.wgsl", Some(include_str!("geodesic_ellis.wgsl"))),
+            Shader::SphericalMinkowski => (include_str!("spherical.wgsl"), "spherical.wgsl", Some(include_str!("geodesic_minkowski.wgsl"))),
         };
-        let module = init_composer()
+        let module = init_composer(geodesic_source)
             .make_naga_module(NagaModuleDescriptor {
                 source: wgsl_source,
                 file_path: wgsl_path,
@@ -737,7 +742,7 @@ impl<'a> GpuInfo<'a> {
     fn apply_move(&mut self, move_global: Vector3<f32>) {
         match self.shader {
             Shader::Cartesian => camera_cartesian::apply_move(&mut self.camera, move_global),
-            Shader::Spherical => camera_spherical::apply_move(&mut self.camera, move_global),
+            Shader::SphericalEllis | Shader::SphericalMinkowski => camera_spherical::apply_move(&mut self.camera, move_global),
         }
     }
 
@@ -796,7 +801,7 @@ impl<'a> GpuInfo<'a> {
             PhysicalKey::Code(KeyCode::Space) => {
                 (self.camera.center, self.camera.l) = match self.shader {
                     Shader::Cartesian => (Vector3::zeros(), 0.0),
-                    Shader::Spherical => (Vector3::new(5.0, 0.0, 0.0), 5.0),
+                    Shader::SphericalEllis | Shader::SphericalMinkowski => (Vector3::new(5.0, 0.0, 0.0), 5.0),
                 };
                 self.camera.rotation = Matrix4::identity();
             }
